@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  bankAccounts  BankAccount[]
+  categories    Category[]
+  rules         CategorizationRule[]
+  importBatches ImportBatch[]
+}
+
+model Account {
+  id                   String    @id @default(cuid())
+  userId               String
+  providerId           String
+  accountId            String
+  accessToken          String?
+  refreshToken         String?
+  idToken              String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                String?
+  password             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([identifier, value])
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  bankName      String?
+  accountNumber String?
+  balance       Decimal? @db.Decimal(12, 2)
+  currency      String   @default("EUR")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  importBatches ImportBatch[]
+}
+
+model ImportBatch {
+  id             String   @id @default(cuid())
+  userId         String
+  bankAccountId  String
+  fileName       String
+  originalName   String?
+  formatDetected String?
+  status         ImportStatus @default(PENDING)
+  totalRows      Int      @default(0)
+  importedCount  Int      @default(0)
+  skippedCount   Int      @default(0)
+  errorCount     Int      @default(0)
+  errorLog       Json?
+  columnMapping  Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccount    BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  importBatchId   String?
+  bankAccountId   String
+  dateOperation   DateTime
+  dateValue       DateTime?
+  label           String
+  labelNormalized String?
+  merchant        String?
+  amount          Decimal  @db.Decimal(12, 2)
+  currency        String   @default("EUR")
+  type            TransactionType
+  isAutomatic     Boolean  @default(false)
+  categoryId     String?
+  categoryManual  String?
+  confidence      Float    @default(0)
+  hash            String   @unique
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  importBatch     ImportBatch?  @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  bankAccount     BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  category        Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([bankAccountId, dateOperation])
+  @@index([categoryId])
+  @@index([hash])
+}
+
+enum TransactionType {
+  DEBIT
+  CREDIT
+  TRANSFER
+  FEE
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String
+  slug        String
+  description String?
+  color       String?
+  icon        String?
+  isSystem    Boolean  @default(false)
+  isIncome    Boolean  @default(false)
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent      Category? @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
+  rules       CategorizationRule[]
+  transactions Transaction[]
+
+  @@unique([userId, slug])
+}
+
+model CategorizationRule {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  priority    Int      @default(0)
+  matchType   MatchType
+  pattern     String
+  categoryId  String
+  isActive    Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive, priority])
+}
+
+enum MatchType {
+  EXACT
+  CONTAINS
+  STARTS_WITH
+  ENDS_WITH
+  REGEX
+  KEYWORD
+}
