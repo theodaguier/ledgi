@@ -1,10 +1,9 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import slugify from "slugify";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 function generateSlug(name: string): string {
   return slugify(name, { lower: true, locale: "fr" });
@@ -13,27 +12,30 @@ function generateSlug(name: string): string {
 export async function createCategory(
   name: string,
   description: string,
-  isIncome: boolean
+  isIncome: boolean,
+  icon?: string,
+  color?: string
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const slug = generateSlug(name);
 
   const existing = await prisma.category.findUnique({
-    where: { userId_slug: { userId: session.user.id, slug } },
+    where: { workspaceId_slug: { workspaceId: ctx.workspaceId, slug } },
   });
 
   if (existing) throw new Error("Une catégorie avec ce nom existe déjà");
 
   await prisma.category.create({
     data: {
-      userId: session.user.id,
+      workspaceId: ctx.workspaceId,
       name,
       slug,
       description: description || null,
       isIncome,
       isSystem: false,
+      icon: icon || null,
+      color: color || null,
     },
   });
 
@@ -45,13 +47,14 @@ export async function updateCategory(
   categoryId: string,
   name: string,
   description: string,
-  isIncome: boolean
+  isIncome: boolean,
+  icon?: string,
+  color?: string
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const category = await prisma.category.findFirst({
-    where: { id: categoryId, userId: session.user.id, isSystem: false },
+    where: { id: categoryId, workspaceId: ctx.workspaceId, isSystem: false },
   });
 
   if (!category) throw new Error("Catégorie non trouvée");
@@ -65,6 +68,8 @@ export async function updateCategory(
       slug,
       description: description || null,
       isIncome,
+      icon: icon || null,
+      color: color || null,
     },
   });
 
@@ -73,11 +78,10 @@ export async function updateCategory(
 }
 
 export async function deleteCategory(categoryId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const category = await prisma.category.findFirst({
-    where: { id: categoryId, userId: session.user.id, isSystem: false },
+    where: { id: categoryId, workspaceId: ctx.workspaceId, isSystem: false },
   });
 
   if (!category) throw new Error("Catégorie non trouvée");

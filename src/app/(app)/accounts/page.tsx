@@ -1,20 +1,17 @@
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/auth";
+import type { Metadata } from "next";
 import AccountsPageClient from "./page-client";
+import { getWorkspaceContext } from "@/lib/workspace";
+
+export const metadata: Metadata = {
+  title: "Comptes",
+};
 
 export default async function AccountsPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session?.user) {
-    redirect("/login");
-  }
+  const ctx = await getWorkspaceContext();
 
   const accountsRaw = await prisma.bankAccount.findMany({
-    where: { userId: session.user.id },
+    where: { workspaceId: ctx.workspaceId },
     orderBy: { createdAt: "asc" },
     include: {
       _count: { select: { transactions: true } },

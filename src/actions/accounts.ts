@@ -1,24 +1,28 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { getWorkspaceContext } from "@/lib/workspace";
+
+type AccountType = "CHECKING" | "SAVINGS" | "CREDIT_CARD" | "INVESTMENT" | "OTHER";
 
 export async function createAccount(data: {
   name: string;
+  type: string;
   bankName: string | null;
   accountNumber: string | null;
   balance: number | null;
   currency: string;
+  ownerUserId?: string;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   await prisma.bankAccount.create({
     data: {
-      userId: session.user.id,
+      workspaceId: ctx.workspaceId,
+      ownerUserId: data.ownerUserId ?? ctx.userId,
       name: data.name,
+      type: data.type as AccountType,
       bankName: data.bankName,
       accountNumber: data.accountNumber,
       balance: data.balance ?? 0,
@@ -33,17 +37,17 @@ export async function updateAccount(
   accountId: string,
   data: {
     name: string;
+    type: string;
     bankName: string | null;
     accountNumber: string | null;
     balance: number | null;
     currency: string;
   }
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const account = await prisma.bankAccount.findFirst({
-    where: { id: accountId, userId: session.user.id },
+    where: { id: accountId, workspaceId: ctx.workspaceId },
   });
 
   if (!account) throw new Error("Compte non trouvé");
@@ -52,6 +56,7 @@ export async function updateAccount(
     where: { id: accountId },
     data: {
       name: data.name,
+      type: data.type as AccountType,
       bankName: data.bankName,
       accountNumber: data.accountNumber,
       balance: data.balance ?? 0,
@@ -63,11 +68,10 @@ export async function updateAccount(
 }
 
 export async function deleteAccount(accountId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const account = await prisma.bankAccount.findFirst({
-    where: { id: accountId, userId: session.user.id },
+    where: { id: accountId, workspaceId: ctx.workspaceId },
     include: { _count: { select: { transactions: true } } },
   });
 
@@ -79,4 +83,16 @@ export async function deleteAccount(accountId: string) {
   });
 
   revalidatePath("/accounts");
+}
+
+export async function getAccounts() {
+  const ctx = await getWorkspaceContext();
+
+  return prisma.bankAccount.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    orderBy: { createdAt: "asc" },
+    include: {
+      _count: { select: { transactions: true } },
+    },
+  });
 }

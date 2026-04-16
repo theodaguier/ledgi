@@ -1,29 +1,60 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { normalizeLabel } from "@/lib/categorization";
+import { TransactionType } from "@prisma/client";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function updateTransactionCategory(
   transactionId: string,
   categoryId: string | null
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
-  const tx = await prisma.transaction.findFirst({
+  const txRecord = await prisma.transaction.findFirst({
     where: {
       id: transactionId,
-      bankAccount: { userId: session.user.id },
+      workspaceId: ctx.workspaceId,
     },
   });
 
-  if (!tx) throw new Error("Transaction not found");
+  if (!txRecord) throw new Error("Transaction not found");
 
-  await prisma.transaction.update({
-    where: { id: transactionId },
-    data: { categoryId },
+  const normalizedLabel = txRecord.labelNormalized ?? normalizeLabel(txRecord.label);
+  const txType: TransactionType = txRecord.type;
+
+  await prisma.$transaction(async (p) => {
+    await p.transaction.update({
+      where: { id: transactionId },
+      data: {
+        categoryId,
+        categoryManual: categoryId,
+      },
+    });
+
+    if (categoryId === null) {
+      await p.manualLabelCategory.deleteMany({
+        where: { workspaceId: ctx.workspaceId, labelNormalized: normalizedLabel, type: txType },
+      });
+    } else {
+      await p.manualLabelCategory.upsert({
+        where: {
+          workspaceId_labelNormalized_type: {
+            workspaceId: ctx.workspaceId,
+            labelNormalized: normalizedLabel,
+            type: txType,
+          },
+        },
+        create: {
+          workspaceId: ctx.workspaceId,
+          labelNormalized: normalizedLabel,
+          type: txType,
+          categoryId,
+        },
+        update: { categoryId, updatedAt: new Date() },
+      });
+    }
   });
 
   revalidatePath("/transactions");
@@ -34,15 +65,67 @@ export async function bulkUpdateCategory(
   transactionIds: string[],
   categoryId: string | null
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
-  await prisma.transaction.updateMany({
+  const transactions = await prisma.transaction.findMany({
     where: {
       id: { in: transactionIds },
-      bankAccount: { userId: session.user.id },
+      workspaceId: ctx.workspaceId,
     },
-    data: { categoryId },
+    select: { id: true, labelNormalized: true, label: true, type: true },
+  });
+
+  await prisma.$transaction(async (p) => {
+    await p.transaction.updateMany({
+      where: {
+        id: { in: transactionIds },
+        workspaceId: ctx.workspaceId,
+      },
+      data: { categoryId, categoryManual: categoryId },
+    });
+
+    const uniquePairs = Array.from(
+      new Map(
+        transactions.map((t) => [
+          `${t.labelNormalized ?? ""}|${t.type}`,
+          {
+            labelNormalized: t.labelNormalized ?? normalizeLabel(t.label),
+            type: t.type as TransactionType,
+          },
+        ])
+      ).values()
+    );
+
+    if (categoryId === null) {
+      await p.manualLabelCategory.deleteMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          OR: uniquePairs.map((pair) => ({
+            labelNormalized: pair.labelNormalized,
+            type: pair.type,
+          })),
+        },
+      });
+    } else {
+      for (const pair of uniquePairs) {
+        await p.manualLabelCategory.upsert({
+          where: {
+            workspaceId_labelNormalized_type: {
+              workspaceId: ctx.workspaceId,
+              labelNormalized: pair.labelNormalized,
+              type: pair.type,
+            },
+          },
+          create: {
+            workspaceId: ctx.workspaceId,
+            labelNormalized: pair.labelNormalized,
+            type: pair.type,
+            categoryId,
+          },
+          update: { categoryId, updatedAt: new Date() },
+        });
+      }
+    }
   });
 
   revalidatePath("/transactions");
@@ -50,13 +133,12 @@ export async function bulkUpdateCategory(
 }
 
 export async function deleteTransaction(transactionId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   await prisma.transaction.deleteMany({
     where: {
       id: transactionId,
-      bankAccount: { userId: session.user.id },
+      workspaceId: ctx.workspaceId,
     },
   });
 
@@ -68,13 +150,12 @@ export async function createRuleFromTransaction(
   transactionId: string,
   categoryId: string
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const tx = await prisma.transaction.findFirst({
     where: {
       id: transactionId,
-      bankAccount: { userId: session.user.id },
+      workspaceId: ctx.workspaceId,
     },
   });
 
@@ -85,12 +166,12 @@ export async function createRuleFromTransaction(
     : tx.label.split(" ").slice(0, 3).join(" ");
 
   const existingRules = await prisma.categorizationRule.count({
-    where: { userId: session.user.id },
+    where: { workspaceId: ctx.workspaceId },
   });
 
   await prisma.categorizationRule.create({
     data: {
-      userId: session.user.id,
+      workspaceId: ctx.workspaceId,
       name: `Règle: ${tx.label.slice(0, 30)}`,
       priority: existingRules,
       matchType: "CONTAINS",

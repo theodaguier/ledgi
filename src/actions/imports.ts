@@ -1,13 +1,12 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/auth";
-import { generateTransactionHash } from "@/lib/csv-parser";
+import { generateTransactionHash, normalizeHeader } from "@/lib/csv-parser";
 import { parseCSV, detectSeparator, detectFormat, parseAmount, parseDate, type FormatProfile } from "@/lib/csv-parser";
-import { categorizeTransaction, normalizeLabel, extractMerchant } from "@/lib/categorization";
-import { ImportStatus, MatchType, TransactionType } from "@prisma/client";
+import { categorizeTransaction, normalizeLabel, extractMerchant, buildManualDecisionKey, type ManualDecisionMap } from "@/lib/categorization";
+import { Prisma, TransactionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export interface ImportResult {
   success: boolean;
@@ -22,12 +21,8 @@ export async function importCSV(
   fileName: string,
   bankAccountId: string
 ): Promise<ImportResult> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) {
-    return { success: false, imported: 0, skipped: 0, errors: ["Not authenticated"], batchId: "" };
-  }
+  const ctx = await getWorkspaceContext();
 
-  const userId = session.user.id;
   const separator = detectSeparator(fileContent);
   const { headers: csvHeaders, rows } = parseCSV(fileContent, separator);
 
@@ -90,13 +85,24 @@ export async function importCSV(
   }
 
   const rules = await prisma.categorizationRule.findMany({
-    where: { userId, isActive: true },
+    where: { workspaceId: ctx.workspaceId, isActive: true },
     orderBy: { priority: "asc" },
   });
 
+  const manualDecisions = await prisma.manualLabelCategory.findMany({
+    where: { workspaceId: ctx.workspaceId },
+    select: { labelNormalized: true, type: true, categoryId: true },
+  });
+  const manualDecisionMap: ManualDecisionMap = new Map(
+    manualDecisions.map((d: { labelNormalized: string; type: TransactionType; categoryId: string }) =>
+      [buildManualDecisionKey(d.labelNormalized, d.type), d.categoryId]
+    )
+  );
+
   const batch = await prisma.importBatch.create({
     data: {
-      userId,
+      workspaceId: ctx.workspaceId,
+      createdByUserId: ctx.userId,
       bankAccountId,
       fileName,
       originalName: fileName,
@@ -146,19 +152,28 @@ export async function importCSV(
       let type: TransactionType = "DEBIT";
 
       if (amountCol) {
-        amount = parseAmount(row[csvHeaders.indexOf(amountCol)], format ?? { decimalSeparator: ",", thousandsSeparator: " " } as any);
-        type = amount < 0 ? "CREDIT" : "DEBIT";
+        amount = parseAmount(
+          row[csvHeaders.indexOf(amountCol)],
+          format ?? defaultProfile,
+        );
+        type = amount < 0 ? "DEBIT" : "CREDIT";
         amount = Math.abs(amount);
       } else {
         if (creditCol) {
-          const credit = parseAmount(row[csvHeaders.indexOf(creditCol)], format ?? { decimalSeparator: ",", thousandsSeparator: " " } as any);
+          const credit = parseAmount(
+            row[csvHeaders.indexOf(creditCol)],
+            format ?? defaultProfile,
+          );
           if (credit > 0) {
             amount = credit;
             type = "CREDIT";
           }
         }
         if (debitCol && amount === 0) {
-          const debit = parseAmount(row[csvHeaders.indexOf(debitCol)], format ?? { decimalSeparator: ",", thousandsSeparator: " " } as any);
+          const debit = parseAmount(
+            row[csvHeaders.indexOf(debitCol)],
+            format ?? defaultProfile,
+          );
           if (debit > 0) {
             amount = debit;
             type = "DEBIT";
@@ -174,18 +189,20 @@ export async function importCSV(
       const hash = generateTransactionHash(dateValue, amount, label);
 
       const existing = await prisma.transaction.findUnique({
-        where: { hash },
+        where: { workspaceId_hash: { workspaceId: ctx.workspaceId, hash } },
       });
       if (existing) {
         skipped++;
         continue;
       }
 
-      const categorization = await categorizeTransaction(label, amount, rules);
+      const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap);
 
       const tx = await prisma.transaction.create({
         data: {
+          workspaceId: ctx.workspaceId,
           importBatchId: batch.id,
+          ownerUserId: ctx.userId,
           bankAccountId,
           dateOperation: dateValue,
           label,
@@ -201,7 +218,7 @@ export async function importCSV(
           metadata: {
             matchedRule: categorization.matchedRule,
             originalRow: rowData,
-          } as any,
+          } as Prisma.InputJsonObject,
         },
       });
 
@@ -223,7 +240,7 @@ export async function importCSV(
       importedCount: imported,
       skippedCount: skipped,
       errorCount: errors.length,
-      errorLog: errors.slice(0, 100) as any,
+      errorLog: errors.slice(0, 100),
     },
   });
 
@@ -241,24 +258,24 @@ export async function importCSV(
 }
 
 function findColumn(headers: string[], candidates: string[]): string | null {
-  const normalized = headers.map((h) => h.toLowerCase().trim());
-  for (const candidate of candidates) {
-    const idx = normalized.indexOf(candidate.toLowerCase());
+  const normalized = headers.map(normalizeHeader);
+  const normCandidates = candidates.map(normalizeHeader);
+  for (const candidate of normCandidates) {
+    const idx = normalized.indexOf(candidate);
     if (idx !== -1) return headers[idx];
   }
   return null;
 }
 
 export async function deleteImportBatch(batchId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) return { error: "Not authenticated" };
+  const ctx = await getWorkspaceContext();
 
   await prisma.transaction.deleteMany({
-    where: { importBatchId: batchId, bankAccount: { userId: session.user.id } },
+    where: { importBatchId: batchId, bankAccount: { workspaceId: ctx.workspaceId } },
   });
 
   await prisma.importBatch.delete({
-    where: { id: batchId, userId: session.user.id },
+    where: { id: batchId, workspaceId: ctx.workspaceId },
   });
 
   revalidatePath("/transactions");

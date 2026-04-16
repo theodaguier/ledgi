@@ -1,0 +1,151 @@
+"use client";
+
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { SheetFooter } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
+
+export const MATCH_TYPES = [
+  { value: "EXACT", label: "Exact" },
+  { value: "CONTAINS", label: "Contient" },
+  { value: "STARTS_WITH", label: "Commence par" },
+  { value: "ENDS_WITH", label: "Finit par" },
+  { value: "REGEX", label: "Expression régulière" },
+  { value: "KEYWORD", label: "Mot-clé" },
+];
+
+interface RuleFormProps {
+  form: {
+    name: string;
+    matchType: string;
+    pattern: string;
+    categoryId: string;
+    description: string;
+  };
+  setForm: React.Dispatch<
+    React.SetStateAction<{
+      name: string;
+      matchType: string;
+      pattern: string;
+      categoryId: string;
+      description: string;
+    }>
+  >;
+  categories: { id: string; name: string }[];
+  isPending: boolean;
+  onSubmit: () => void;
+  onCancel: () => void;
+  isEdit?: boolean;
+}
+
+export function RuleForm({
+  form,
+  setForm,
+  categories,
+  isPending,
+  onSubmit,
+  onCancel,
+  isEdit,
+}: RuleFormProps) {
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="rule-name">Nom</FieldLabel>
+            <Input
+              id="rule-name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Nom de la règle"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rule-match-type">Type de match</FieldLabel>
+            <Select
+              value={form.matchType}
+              onValueChange={(v) => v && setForm({ ...form, matchType: v })}
+            >
+              <SelectTrigger id="rule-match-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MATCH_TYPES.map((mt) => (
+                  <SelectItem key={mt.value} value={mt.value}>
+                    {mt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rule-pattern">Motif</FieldLabel>
+            <Input
+              id="rule-pattern"
+              value={form.pattern}
+              onChange={(e) => setForm({ ...form, pattern: e.target.value })}
+              placeholder={
+                form.matchType === "REGEX" ? "Expression régulière" : "Texte à rechercher"
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rule-category">Catégorie cible</FieldLabel>
+            <Select
+              value={form.categoryId}
+              onValueChange={(v) => v && setForm({ ...form, categoryId: v })}
+            >
+              <SelectTrigger id="rule-category">
+                <SelectValue placeholder="Sélectionner une catégorie" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="rule-description">Description</FieldLabel>
+            <Input
+              id="rule-description"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Description optionnelle"
+            />
+          </Field>
+        </FieldGroup>
+      </div>
+      <SheetFooter>
+        <Button variant="outline" onClick={onCancel} disabled={isPending}>
+          Annuler
+        </Button>
+        <Button
+          onClick={onSubmit}
+          disabled={isPending || !form.name.trim() || !form.pattern.trim() || !form.categoryId}
+        >
+          {isPending ? (
+            <>
+              <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />
+              Enregistrement...
+            </>
+          ) : isEdit ? (
+            "Enregistrer"
+          ) : (
+            "Créer la règle"
+          )}
+        </Button>
+      </SheetFooter>
+    </>
+  );
+}

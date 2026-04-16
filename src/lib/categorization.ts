@@ -1,9 +1,15 @@
-import { Prisma, MatchType } from "@prisma/client";
+import { MatchType } from "@prisma/client";
 
 export interface CategorizationResult {
   categoryId: string | null;
   confidence: number;
   matchedRule: string | null;
+}
+
+export type ManualDecisionMap = Map<string, string | null>;
+
+export function buildManualDecisionKey(labelNormalized: string, type: string): string {
+  return `${labelNormalized}|${type}`;
 }
 
 export async function categorizeTransaction(
@@ -18,13 +24,26 @@ export async function categorizeTransaction(
     categoryId: string;
     isActive: boolean;
   }>,
-  existingCategoryId?: string | null
+  existingCategoryId?: string | null,
+  manualDecisions?: ManualDecisionMap
 ): Promise<CategorizationResult> {
-  if (existingCategoryId) {
+  if (existingCategoryId !== undefined && existingCategoryId !== null) {
     return { categoryId: existingCategoryId, confidence: 1.0, matchedRule: null };
   }
 
   const normalizedLabel = label.toLowerCase().trim();
+
+  if (manualDecisions && manualDecisions.size > 0) {
+    const debitKey = buildManualDecisionKey(normalizedLabel, "DEBIT");
+    const creditKey = buildManualDecisionKey(normalizedLabel, "CREDIT");
+    const manualCategoryId = manualDecisions.get(debitKey) ?? manualDecisions.get(creditKey);
+    if (manualCategoryId !== undefined) {
+      return { categoryId: manualCategoryId, confidence: 0.95, matchedRule: null };
+    }
+    if (manualDecisions.has(debitKey) || manualDecisions.has(creditKey)) {
+      return { categoryId: null, confidence: 0, matchedRule: null };
+    }
+  }
 
   const sortedRules = [...rules]
     .filter((r) => r.isActive)
@@ -169,7 +188,7 @@ const HEURISTIC_PATTERNS: Array<{
   },
 ];
 
-function applyHeuristics(label: string, amount: number): HeuristicResult {
+function applyHeuristics(label: string, _amount: number): HeuristicResult {
   const normalizedLabel = label.toLowerCase();
 
   for (const heuristic of HEURISTIC_PATTERNS) {

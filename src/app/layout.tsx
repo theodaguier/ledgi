@@ -1,30 +1,26 @@
 import type { Metadata } from "next";
-import { Fraunces, DM_Sans, JetBrains_Mono, Geist_Mono, Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { cn } from "@/lib/utils";
+import { siteConfig } from "@/config";
 
-const geistHeading = Geist({subsets:['latin'],variable:'--font-heading'});
-
-const fraunces = Fraunces({
-  variable: "--font-display",
+const geistHeading = Geist({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
+  variable: "--font-heading",
 });
 
-const dmSans = DM_Sans({
-  variable: "--font-sans",
+const geistMono = Geist_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  variable: "--font-mono",
 });
-
-const geistMono = Geist_Mono({subsets:['latin'],variable:'--font-mono'});
 
 export const metadata: Metadata = {
-  title: "Finance",
-  description: "Personal expense tracking dashboard",
+  title: {
+    default: siteConfig.name,
+    template: `%s | ${siteConfig.name}`,
+  },
+  description: siteConfig.description,
 };
 
 export default function RootLayout({
@@ -33,10 +29,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className={cn("h-full", "font-mono", geistMono.variable, geistHeading.variable)} suppressHydrationWarning>
-      <body
-        className={`${fraunces.variable} ${dmSans.variable} ${geistMono.variable} h-full antialiased font-sans`}
-      >
+    <html
+      lang="fr"
+      className={`${geistHeading.variable} ${geistMono.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <body className="h-full font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

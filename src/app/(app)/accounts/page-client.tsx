@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createAccount, updateAccount, deleteAccount } from "@/actions/accounts";
+import {
+  createAccount,
+  updateAccount,
+  deleteAccount,
+} from "@/actions/accounts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,15 +16,19 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
-  SheetFooter,
 } from "@/components/ui/sheet";
-import { Plus, Pencil, Trash2, Loader2, Landmark } from "lucide-react";
+import { Plus, Pencil, Trash2, Landmark } from "lucide-react";
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { AppPageShell } from "@/components/app-page-shell";
+import { AppPageHeader } from "@/components/app-page-header";
+import { AccountForm } from "./account-form";
 
 interface Account {
   id: string;
   name: string;
+  type: string | null;
   bankName: string | null;
   accountNumber: string | null;
   balance: number | string | null;
@@ -34,6 +40,7 @@ interface Account {
 
 interface AccountFormState {
   name: string;
+  type: string;
   bankName: string;
   accountNumber: string;
   balance: string;
@@ -48,9 +55,11 @@ export default function AccountsPageClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isCreating, setIsCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Account | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [form, setForm] = useState<AccountFormState>({
     name: "",
+    type: "CHECKING",
     bankName: "",
     accountNumber: "",
     balance: "",
@@ -65,6 +74,7 @@ export default function AccountsPageClient({
         if (isEdit && editingAccount) {
           await updateAccount(editingAccount.id, {
             name: form.name,
+            type: form.type,
             bankName: form.bankName || null,
             accountNumber: form.accountNumber || null,
             balance: form.balance ? parseFloat(form.balance) : null,
@@ -74,6 +84,7 @@ export default function AccountsPageClient({
         } else {
           await createAccount({
             name: form.name,
+            type: form.type,
             bankName: form.bankName || null,
             accountNumber: form.accountNumber || null,
             balance: form.balance ? parseFloat(form.balance) : null,
@@ -89,14 +100,21 @@ export default function AccountsPageClient({
     });
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (acc: Account) => {
+    setPendingDelete(acc);
+  };
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
     startTransition(async () => {
       try {
-        await deleteAccount(id);
+        await deleteAccount(pendingDelete.id);
         toast.success("Compte supprimé");
         router.refresh();
       } catch {
         toast.error("Erreur lors de la suppression");
+      } finally {
+        setPendingDelete(null);
       }
     });
   };
@@ -106,6 +124,7 @@ export default function AccountsPageClient({
     setEditingAccount(null);
     setForm({
       name: "",
+      type: "CHECKING",
       bankName: "",
       accountNumber: "",
       balance: "",
@@ -117,6 +136,7 @@ export default function AccountsPageClient({
     setEditingAccount(acc);
     setForm({
       name: acc.name,
+      type: acc.type ?? "CHECKING",
       bankName: acc.bankName ?? "",
       accountNumber: acc.accountNumber ?? "",
       balance: acc.balance?.toString() ?? "",
@@ -140,92 +160,24 @@ export default function AccountsPageClient({
     const bal =
       typeof acc.balance === "string"
         ? parseFloat(acc.balance)
-        : acc.balance ?? 0;
+        : (acc.balance ?? 0);
     return sum + bal;
   }, 0);
 
   const totalCurrency = accounts[0]?.currency ?? "EUR";
 
-  const AccountForm = ({
-    account,
-    onSubmit,
-    onCancel,
-  }: {
-    account?: Account | null;
-    onSubmit: () => void;
-    onCancel: () => void;
-  }) => (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-sm font-medium">Nom du compte</Label>
-        <Input
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="Compte Principal"
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-sm font-medium">Banque</Label>
-        <Input
-          value={form.bankName}
-          onChange={(e) => setForm({ ...form, bankName: e.target.value })}
-          placeholder="Nom de la banque"
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-sm font-medium">Numéro de compte</Label>
-        <Input
-          value={form.accountNumber}
-          onChange={(e) =>
-            setForm({ ...form, accountNumber: e.target.value })}
-          placeholder="Optionnel"
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-sm font-medium">Solde initial</Label>
-        <Input
-          type="number"
-          step="0.01"
-          value={form.balance}
-          onChange={(e) => setForm({ ...form, balance: e.target.value })}
-          placeholder="0.00"
-        />
-      </div>
-      <SheetFooter className="mt-2 gap-2">
-        <Button variant="outline" onClick={onCancel} disabled={isPending}>
-          Annuler
-        </Button>
-        <Button onClick={onSubmit} disabled={isPending || !form.name.trim()}>
-          {isPending ? (
-            <>
-              <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />
-              Enregistrement...
-            </>
-          ) : account ? (
-            "Enregistrer"
-          ) : (
-            "Créer le compte"
-          )}
-        </Button>
-      </SheetFooter>
-    </div>
-  );
-
   return (
-    <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Comptes</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {accounts.length} compte{accounts.length > 1 ? "s" : ""}
-          </p>
-        </div>
-        <Button onClick={openCreate} className="shrink-0">
-          <Plus className="size-4" data-icon="inline-start" />
-          Nouveau compte
-        </Button>
-      </div>
+    <AppPageShell>
+      <AppPageHeader
+        title="Comptes"
+        description={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`}
+        actions={
+          <Button onClick={openCreate} className="shrink-0">
+            <Plus className="size-4" data-icon="inline-start" />
+            Nouveau compte
+          </Button>
+        }
+      />
 
       {/* Total Balance */}
       <Card>
@@ -235,7 +187,7 @@ export default function AccountsPageClient({
           </div>
           <div className="flex flex-col gap-0.5">
             <p className="text-sm text-muted-foreground">Solde total</p>
-            <p className="text-2xl font-semibold tracking-tight">
+            <p className="text-2xl tracking-tight">
               {formatCurrency(totalBalance, totalCurrency)}
             </p>
           </div>
@@ -251,7 +203,17 @@ export default function AccountsPageClient({
                 <div className="flex flex-col gap-1 min-w-0">
                   <CardTitle className="text-base">{acc.name}</CardTitle>
                   {acc.bankName && (
-                    <p className="text-xs text-muted-foreground">{acc.bankName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {acc.bankName}
+                    </p>
+                  )}
+                  {acc.type && (
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {acc.type === "CHECKING" ? "Compte courant" :
+                       acc.type === "SAVINGS" ? "Compte d'épargne" :
+                       acc.type === "CREDIT_CARD" ? "Carte de crédit" :
+                       acc.type === "INVESTMENT" ? "Investissement" : "Autre"}
+                    </p>
                   )}
                 </div>
                 <Badge variant="secondary" className="shrink-0">
@@ -262,11 +224,11 @@ export default function AccountsPageClient({
             <CardContent className="flex flex-col gap-3">
               <div className="flex items-baseline justify-between">
                 <span className="text-xs text-muted-foreground">Solde</span>
-                <span className="text-base font-semibold">
+                <span>
                   {acc.balance != null
                     ? formatCurrency(
                         parseFloat(acc.balance.toString()),
-                        acc.currency
+                        acc.currency,
                       )
                     : "—"}
                 </span>
@@ -293,9 +255,8 @@ export default function AccountsPageClient({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleDelete(acc.id)}
+                  onClick={() => handleDelete(acc)}
                   disabled={acc._count.transactions > 0}
-                  className="text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 className="size-3" />
                 </Button>
@@ -315,6 +276,9 @@ export default function AccountsPageClient({
             </SheetDescription>
           </SheetHeader>
           <AccountForm
+            form={form}
+            setForm={setForm}
+            isPending={isPending}
             onSubmit={() => handleSubmit(false)}
             onCancel={resetForm}
           />
@@ -329,17 +293,29 @@ export default function AccountsPageClient({
         <SheetContent side="right">
           <SheetHeader>
             <SheetTitle>Modifier le compte</SheetTitle>
-            <SheetDescription>
-              {editingAccount?.name}
-            </SheetDescription>
+            <SheetDescription>{editingAccount?.name}</SheetDescription>
           </SheetHeader>
           <AccountForm
-            account={editingAccount}
+            form={form}
+            setForm={setForm}
+            isPending={isPending}
             onSubmit={() => handleSubmit(true)}
             onCancel={() => setEditingAccount(null)}
+            isEdit
           />
         </SheetContent>
       </Sheet>
-    </div>
+
+      <ConfirmActionDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title="Supprimer ce compte ?"
+        description="Cette action est définitive. Elle n'est pas possible si des transactions sont liées à ce compte."
+        confirmLabel="Supprimer"
+        destructive
+        pending={isPending}
+        onConfirm={confirmDelete}
+      />
+    </AppPageShell>
   );
 }

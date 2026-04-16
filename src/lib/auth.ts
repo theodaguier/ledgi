@@ -39,8 +39,12 @@ export const auth = betterAuth({
         return hash(pwd, salt);
       },
       verify: async ({ hash: h, password: pwd }) => {
-        return compare(pwd, h);
+        return compare(h, pwd);
       },
+    },
+    sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
+      const { sendPasswordResetEmail } = await import("@/lib/email");
+      await sendPasswordResetEmail({ to: user.email, url });
     },
   },
   session: {

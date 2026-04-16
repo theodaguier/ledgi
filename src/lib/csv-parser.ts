@@ -92,8 +92,21 @@ export const KNOWN_FORMATS: FormatProfile[] = [
   },
 ];
 
+export function normalizeHeader(header: string): string {
+  let h = header;
+  if (h.charCodeAt(0) === 0xfeff) h = h.slice(1);
+  h = h.toLowerCase().trim();
+  h = h.replace(/[\u2018\u2019\u201a\u201b]/g, "'");
+  h = h.replace(/[\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f0\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8\u00f9\u00fa\u00fb\u00fc\u00fd\u00fe\u00ff]/gi, (c) =>
+    "aaaaaaeeeeiiiiooooouuuuyy".charAt(c.charCodeAt(0) - 0xe0)
+  );
+  h = h.replace(/\s+/g, " ");
+  h = h.replace(/[()[\]€$£¥]/g, "").trim();
+  return h;
+}
+
 export function detectFormat(headers: string[]): FormatProfile | null {
-  const normalizedHeaders = headers.map((h) => h.toLowerCase().trim());
+  const normalizedHeaders = headers.map(normalizeHeader);
 
   for (const format of KNOWN_FORMATS) {
     let matches = 0;
@@ -104,6 +117,12 @@ export function detectFormat(headers: string[]): FormatProfile | null {
       if (normalizedHeaders.includes(col)) matches++;
     }
     for (const col of format.amountColumns) {
+      if (normalizedHeaders.includes(col)) matches++;
+    }
+    for (const col of format.creditColumns) {
+      if (normalizedHeaders.includes(col)) matches++;
+    }
+    for (const col of format.debitColumns) {
       if (normalizedHeaders.includes(col)) matches++;
     }
 

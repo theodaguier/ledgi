@@ -1,21 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import Link from "next/link";
 import { signInWithEmail } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Wallet, Loader2 } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { WalletIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
+import { siteConfig } from "@/config";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("invite");
+  const prefillEmail = searchParams.get("email") ?? "";
+
+  const [email, setEmail] = useState(() => prefillEmail);
   const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,16 +37,18 @@ export default function LoginPage() {
       const result = await signInWithEmail(email, password);
 
       if (result.error) {
-        toast.error(result.error.message ?? "Authentication failed");
+        toast.error(result.error.message ?? "Connexion impossible");
         setIsLoading(false);
         return;
       }
 
-      toast.success("Welcome back!");
-      router.push("/dashboard");
-      router.refresh();
-    } catch (err) {
-      toast.error("Invalid email or password");
+      if (inviteToken) {
+        router.push(`/invite/${inviteToken}/accept`);
+      } else {
+        router.push("/dashboard");
+      }
+    } catch {
+      toast.error("Une erreur est survenue");
       setIsLoading(false);
     }
   };
@@ -44,67 +58,72 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center gap-3 mb-8">
           <div className="flex items-center gap-2">
-            <Wallet className="size-8 text-foreground" />
-            <h1 className="text-2xl font-[500] text-foreground">Finance</h1>
+            <HugeiconsIcon
+              icon={WalletIcon}
+              className="size-8 text-foreground"
+            />
+            <h1 className="text-foreground">{siteConfig.name}</h1>
           </div>
           <p className="text-sm text-muted-foreground text-center">
-            Sign in to your expense tracker
+            Connexion à votre compte
           </p>
         </div>
 
-        <Card className="card-container border border-border no-shadow">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Sign in</CardTitle>
-            <CardDescription className="text-sm">
-              Enter your credentials to access your account
+        <Card>
+          <CardHeader>
+            <CardTitle>Se connecter</CardTitle>
+            <CardDescription>
+              {inviteToken
+                ? "Acceptez l'invitation après connexion"
+                : "Entrez vos identifiants pour accéder à votre espace"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSignIn} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email" className="text-sm font-normal">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="theo.daguier@icloud.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="input-pill"
-                  disabled={isLoading}
-                />
-              </div>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="email">Email</FieldLabel>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="email@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    disabled={isLoading}
+                  />
+                </Field>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="password" className="text-sm font-normal">
-                  Password
-                </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  className="input-pill"
-                  disabled={isLoading}
-                />
-              </div>
+                <Field>
+                  <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    disabled={isLoading}
+                  />
+                </Field>
+              </FieldGroup>
 
               <Button
                 type="submit"
-                className="w-full btn-pill mt-2"
+                className="mt-2 w-full"
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
-                    Signing in...
+                    <HugeiconsIcon
+                      icon={Loading03Icon}
+                      className="size-4 animate-spin"
+                      data-icon="inline-start"
+                    />
+                    Connexion...
                   </>
                 ) : (
-                  "Sign in"
+                  "Se connecter"
                 )}
               </Button>
             </form>
@@ -114,7 +133,49 @@ export default function LoginPage() {
         <p className="text-xs text-muted-foreground text-center mt-6">
           Personal finance tracker
         </p>
+
+        <p className="text-xs text-muted-foreground text-center mt-4">
+          Vous n&apos;avez pas de compte ?{" "}
+          <Link
+            href={`/register${inviteToken ? `?invite=${inviteToken}&email=${encodeURIComponent(prefillEmail)}` : ""}`}
+            className="underline hover:text-foreground"
+          >
+            Créer un compte
+          </Link>
+        </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background p-4">
+          <div className="w-full max-w-sm">
+            <div className="flex flex-col items-center gap-3 mb-8">
+              <div className="flex items-center gap-2">
+                <HugeiconsIcon
+                  icon={WalletIcon}
+                  className="size-8 text-foreground"
+                />
+                <h1 className="text-foreground">{siteConfig.name}</h1>
+              </div>
+            </div>
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <HugeiconsIcon
+                  icon={Loading03Icon}
+                  className="size-8 animate-spin text-muted-foreground"
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

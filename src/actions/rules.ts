@@ -1,10 +1,9 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { MatchType } from "@prisma/client";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function createRule(data: {
   name: string;
@@ -13,16 +12,15 @@ export async function createRule(data: {
   categoryId: string;
   description: string;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const existing = await prisma.categorizationRule.count({
-    where: { userId: session.user.id },
+    where: { workspaceId: ctx.workspaceId },
   });
 
   await prisma.categorizationRule.create({
     data: {
-      userId: session.user.id,
+      workspaceId: ctx.workspaceId,
       name: data.name,
       matchType: data.matchType as MatchType,
       pattern: data.pattern,
@@ -47,11 +45,10 @@ export async function updateRule(
     description: string;
   }
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   const rule = await prisma.categorizationRule.findFirst({
-    where: { id: ruleId, userId: session.user.id },
+    where: { id: ruleId, workspaceId: ctx.workspaceId },
   });
 
   if (!rule) throw new Error("Règle non trouvée");
@@ -72,11 +69,10 @@ export async function updateRule(
 }
 
 export async function deleteRule(ruleId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   await prisma.categorizationRule.deleteMany({
-    where: { id: ruleId, userId: session.user.id },
+    where: { id: ruleId, workspaceId: ctx.workspaceId },
   });
 
   revalidatePath("/rules");
@@ -84,11 +80,10 @@ export async function deleteRule(ruleId: string) {
 }
 
 export async function toggleRule(ruleId: string, isActive: boolean) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   await prisma.categorizationRule.updateMany({
-    where: { id: ruleId, userId: session.user.id },
+    where: { id: ruleId, workspaceId: ctx.workspaceId },
     data: { isActive },
   });
 
@@ -97,13 +92,12 @@ export async function toggleRule(ruleId: string, isActive: boolean) {
 }
 
 export async function reorderRules(ruleIds: string[]) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  const ctx = await getWorkspaceContext();
 
   await Promise.all(
     ruleIds.map((id, index) =>
       prisma.categorizationRule.updateMany({
-        where: { id, userId: session.user.id },
+        where: { id, workspaceId: ctx.workspaceId },
         data: { priority: index },
       })
     )

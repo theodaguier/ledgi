@@ -11,3 +11,11 @@ export const { signOut, useSession, getSession } = authClient;
 export async function signInWithEmail(email: string, password: string) {
   return authClient.signIn.email({ email, password });
 }
+
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  name: string
+) {
+  return authClient.signUp.email({ email, password, name });
+}

@@ -1,21 +1,18 @@
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/auth";
+import type { Metadata } from "next";
 import CategoriesPageClient from "./page-client";
+import { getWorkspaceContext } from "@/lib/workspace";
+
+export const metadata: Metadata = {
+  title: "Catégories",
+};
 
 export default async function CategoriesPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session?.user) {
-    redirect("/login");
-  }
+  const ctx = await getWorkspaceContext();
 
   const categories = await prisma.category.findMany({
     where: {
-      OR: [{ userId: session.user.id }, { isSystem: true }],
+      OR: [{ workspaceId: ctx.workspaceId }, { isSystem: true }],
     },
     orderBy: [{ isIncome: "asc" }, { name: "asc" }],
     include: {

@@ -13,6 +13,7 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   console.log("Starting database seed...");
 
+  const adminName = process.env.ADMIN_NAME ?? "Admin";
   const adminEmail = process.env.ADMIN_EMAIL ?? "theo.daguier@icloud.com";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "Pokemon72000!";
 
@@ -26,8 +27,8 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         email: adminEmail,
-        name: "Admin",
-        emailVerified: new Date(),
+        name: adminName,
+        emailVerified: true,
       },
     });
 
@@ -71,53 +72,91 @@ async function main() {
     console.log("Credential account already exists.");
   }
 
+  const adminWorkspaceSlug = `personal-${adminUser.id}`;
+
+  const existingWorkspace = await prisma.workspace.findUnique({
+    where: { slug: adminWorkspaceSlug },
+  });
+
+  let workspaceId: string;
+  if (!existingWorkspace) {
+    const ws = await prisma.workspace.create({
+      data: {
+        name: `${adminUser.name ?? adminUser.email}'s Space`,
+        slug: adminWorkspaceSlug,
+        type: "PERSONAL",
+        defaultCurrency: "EUR",
+      },
+    });
+    workspaceId = ws.id;
+    await prisma.workspaceMember.create({
+      data: {
+        workspaceId,
+        userId: adminUser.id,
+        role: "OWNER",
+      },
+    });
+    console.log("Admin workspace created.");
+  } else {
+    workspaceId = existingWorkspace.id;
+    console.log("Admin workspace already exists.");
+  }
+
   const existingAccount = await prisma.bankAccount.findFirst({
-    where: { userId: adminUser.id },
+    where: { workspaceId },
   });
 
   if (!existingAccount) {
     await prisma.bankAccount.create({
       data: {
-        userId: adminUser.id,
+        workspaceId,
+        ownerUserId: adminUser.id,
         name: "Compte Principal",
+        type: "CHECKING",
         bankName: "Generic",
         currency: "EUR",
         balance: 0,
       },
     });
     console.log("Default bank account created.");
+  } else {
+    await prisma.bankAccount.update({
+      where: { id: existingAccount.id },
+      data: { type: "CHECKING" },
+    });
+    console.log("Default bank account updated with type.");
   }
 
   const defaultCategories = [
-    { name: "Logement", slug: "logement", isSystem: true, isIncome: false, description: "Loyer, charges, énergie" },
-    { name: "Courses", slug: "courses", isSystem: true, isIncome: false, description: "Supermarché, alimentation" },
-    { name: "Restaurants", slug: "restaurants", isSystem: true, isIncome: false, description: "Bars, restaurants, cafés" },
-    { name: "Transport", slug: "transport", isSystem: true, isIncome: false, description: "Carburant, transports en commun" },
-    { name: "Santé", slug: "sante", isSystem: true, isIncome: false, description: "Médecin, pharmacie, mutuelle" },
-    { name: "Abonnements", slug: "abonnements", isSystem: true, isIncome: false, description: "Netflix, Spotify, mobile..." },
-    { name: "Shopping", slug: "shopping", isSystem: true, isIncome: false, description: "Vêtements, électronique, divers" },
-    { name: "Loisirs", slug: "loisirs", isSystem: true, isIncome: false, description: "Sport, culture, vacances" },
-    { name: "Salaire", slug: "salaire", isSystem: true, isIncome: true, description: "Rémunération" },
-    { name: "Virements", slug: "virements", isSystem: true, isIncome: false, description: "Virements reçus et émis" },
-    { name: "Frais bancaires", slug: "frais-bancaires", isSystem: true, isIncome: false, description: "Frais de tenue de compte" },
-    { name: "Impôts", slug: "impots", isSystem: true, isIncome: false, description: "Impôts et taxes" },
-    { name: "Autre", slug: "autre", isSystem: true, isIncome: false, description: "Non catégorisé" },
+    { name: "Logement",       slug: "logement",       isSystem: true, isIncome: false, description: "Loyer, charges, énergie",             icon: "Home",           color: "#3b82f6" },
+    { name: "Courses",        slug: "courses",        isSystem: true, isIncome: false, description: "Supermarché, alimentation",            icon: "ShoppingCart",   color: "#22c55e" },
+    { name: "Restaurants",    slug: "restaurants",    isSystem: true, isIncome: false, description: "Bars, restaurants, cafés",             icon: "UtensilsCrossed",color: "#f97316" },
+    { name: "Transport",      slug: "transport",      isSystem: true, isIncome: false, description: "Carburant, transports en commun",      icon: "Car",            color: "#06b6d4" },
+    { name: "Santé",          slug: "sante",          isSystem: true, isIncome: false, description: "Médecin, pharmacie, mutuelle",         icon: "Heart",          color: "#ef4444" },
+    { name: "Abonnements",    slug: "abonnements",    isSystem: true, isIncome: false, description: "Netflix, Spotify, mobile...",          icon: "Clock",          color: "#6366f1" },
+    { name: "Shopping",       slug: "shopping",       isSystem: true, isIncome: false, description: "Vêtements, électronique, divers",      icon: "ShoppingBag",    color: "#ec4899" },
+    { name: "Loisirs",        slug: "loisirs",        isSystem: true, isIncome: false, description: "Sport, culture, vacances",             icon: "Music",          color: "#8b5cf6" },
+    { name: "Salaire",        slug: "salaire",        isSystem: true, isIncome: true,  description: "Rémunération",                         icon: "Briefcase",      color: "#10b981" },
+    { name: "Virements",      slug: "virements",      isSystem: true, isIncome: false, description: "Virements reçus et émis",              icon: "RotateCcw",      color: "#64748b" },
+    { name: "Frais bancaires",slug: "frais-bancaires",isSystem: true, isIncome: false, description: "Frais de tenue de compte",             icon: "CreditCard",     color: "#f59e0b" },
+    { name: "Impôts",         slug: "impots",         isSystem: true, isIncome: false, description: "Impôts et taxes",                      icon: "Percent",        color: "#dc2626" },
+    { name: "Autre",          slug: "autre",          isSystem: true, isIncome: false, description: "Non catégorisé",                       icon: "Layers",         color: "#71717a" },
   ];
 
   for (const cat of defaultCategories) {
     await prisma.category.upsert({
-      where: { userId_slug: { userId: adminUser.id, slug: cat.slug } },
-      update: {},
+      where: { workspaceId_slug: { workspaceId, slug: cat.slug } },
+      update: { icon: cat.icon, color: cat.color },
       create: {
         ...cat,
-        userId: adminUser.id,
+        workspaceId,
       },
     });
   }
   console.log("Default categories created.");
 
   const categories = await prisma.category.findMany({
-    where: { userId: adminUser.id },
+    where: { workspaceId },
   });
   const catMap = Object.fromEntries(categories.map((c) => [c.slug, c.id]));
 
@@ -154,7 +193,7 @@ async function main() {
       update: {},
       create: {
         id: `rule-${i}`,
-        userId: adminUser.id,
+        workspaceId,
         name: rule.name,
         priority: i,
         matchType: rule.matchType,
