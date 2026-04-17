@@ -9,7 +9,7 @@ import {
   toggleRule,
 } from "@/actions/rules";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -19,11 +19,19 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, ListChecks } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
 import { RuleForm, MATCH_TYPES } from "./rule-form";
+import { ruleFormSchema } from "@/lib/validation/schemas";
 import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 
 interface Rule {
@@ -40,6 +48,8 @@ interface Rule {
 interface Category {
   id: string;
   name: string;
+  icon: string | null;
+  color: string | null;
 }
 
 export default function RulesPageClient({
@@ -61,9 +71,21 @@ export default function RulesPageClient({
     categoryId: "",
     description: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string[]>>({});
 
   const handleSubmit = (isEdit: boolean) => {
-    if (!form.name.trim() || !form.pattern.trim() || !form.categoryId) return;
+    const parsed = ruleFormSchema.safeParse(form);
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setFormErrors(fieldErrors);
+      return;
+    }
+    setFormErrors({});
 
     startTransition(async () => {
       try {
@@ -123,6 +145,7 @@ export default function RulesPageClient({
       categoryId: "",
       description: "",
     });
+    setFormErrors({});
   };
 
   const openEdit = (rule: Rule) => {
@@ -163,12 +186,6 @@ export default function RulesPageClient({
 
       {/* Rules List */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <ListChecks className="size-4 text-muted-foreground" />
-            Toutes les règles
-          </CardTitle>
-        </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-border/60">
             {rules.length === 0 ? (
@@ -181,7 +198,7 @@ export default function RulesPageClient({
               rules.map((rule) => (
                 <div
                   key={rule.id}
-                  className="flex items-start justify-between gap-4 p-4 hover:bg-accent/30 transition-colors"
+                  className="group flex items-start justify-between gap-4 p-4 hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex flex-col gap-1.5 min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -213,20 +230,32 @@ export default function RulesPageClient({
                       }
                       disabled={isPending}
                     />
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => openEdit(rule)}
-                    >
-                      <Pencil className="size-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleDelete(rule)}
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <MoreHorizontal />
+                          <span className="sr-only">Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openEdit(rule)}>
+                          <Pencil />
+                          Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => handleDelete(rule)}
+                        >
+                          <Trash2 />
+                          Supprimer
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               ))
@@ -254,6 +283,7 @@ export default function RulesPageClient({
             isPending={isPending}
             onSubmit={() => handleSubmit(false)}
             onCancel={resetForm}
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>
@@ -276,6 +306,7 @@ export default function RulesPageClient({
             onSubmit={() => handleSubmit(true)}
             onCancel={() => setEditingRule(null)}
             isEdit
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>

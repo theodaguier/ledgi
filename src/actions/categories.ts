@@ -4,6 +4,7 @@ import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import slugify from "slugify";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { categoryFormSchema } from "@/lib/validation/schemas";
 
 function generateSlug(name: string): string {
   return slugify(name, { lower: true, locale: "fr" });
@@ -16,6 +17,10 @@ export async function createCategory(
   icon?: string,
   color?: string
 ) {
+  const parsed = categoryFormSchema.safeParse({ name, description, isIncome, icon, color });
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
   const ctx = await getWorkspaceContext();
 
   const slug = generateSlug(name);
@@ -51,6 +56,11 @@ export async function updateCategory(
   icon?: string,
   color?: string
 ) {
+  const parsed = categoryFormSchema.safeParse({ name, description, isIncome, icon, color });
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
+
   const ctx = await getWorkspaceContext();
 
   const category = await prisma.category.findFirst({

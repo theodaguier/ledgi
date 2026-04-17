@@ -3,6 +3,8 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { getDashboardMessages } from "@/lib/dashboard-messages";
+import type { AppLocale } from "@/lib/locale";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,28 +16,30 @@ import { CalendarRange, ChevronDown } from "lucide-react";
 
 export type PeriodPreset = "this_month" | "last_month" | "3_months" | "6_months" | "this_year";
 
-const PERIOD_OPTIONS: { value: PeriodPreset; label: string }[] = [
-  { value: "this_month", label: "Ce mois" },
-  { value: "last_month", label: "Mois dernier" },
-  { value: "3_months", label: "3 derniers mois" },
-  { value: "6_months", label: "6 derniers mois" },
-  { value: "this_year", label: "Année en cours" },
+const PERIOD_OPTIONS: PeriodPreset[] = [
+  "this_month",
+  "last_month",
+  "3_months",
+  "6_months",
+  "this_year",
 ];
 
 interface DashboardPeriodFilterProps {
   activePeriod?: PeriodPreset;
+  locale: AppLocale;
 }
 
 export function DashboardPeriodFilter({
   activePeriod = "this_month",
+  locale,
 }: DashboardPeriodFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const messages = getDashboardMessages(locale);
 
-  const activeLabel =
-    PERIOD_OPTIONS.find((o) => o.value === activePeriod)?.label ?? "Ce mois";
+  const activeLabel = messages.filters.periods[activePeriod];
 
   const handlePeriodChange = (value: string) => {
     startTransition(() => {
@@ -65,8 +69,8 @@ export function DashboardPeriodFilter({
           onValueChange={handlePeriodChange}
         >
           {PERIOD_OPTIONS.map((option) => (
-            <DropdownMenuRadioItem key={option.value} value={option.value}>
-              {option.label}
+            <DropdownMenuRadioItem key={option} value={option}>
+              {messages.filters.periods[option]}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

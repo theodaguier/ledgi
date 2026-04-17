@@ -2,16 +2,18 @@
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldError } from "@/components/ui/field";
 import { SheetFooter } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import { CategoryIcon } from "@/lib/category-icon";
 
 export const MATCH_TYPES = [
   { value: "EXACT", label: "Exact" },
@@ -39,11 +41,12 @@ interface RuleFormProps {
       description: string;
     }>
   >;
-  categories: { id: string; name: string }[];
+  categories: { id: string; name: string; icon: string | null; color: string | null }[];
   isPending: boolean;
   onSubmit: () => void;
   onCancel: () => void;
   isEdit?: boolean;
+  errors?: Record<string, string[]>;
 }
 
 export function RuleForm({
@@ -54,22 +57,24 @@ export function RuleForm({
   onSubmit,
   onCancel,
   isEdit,
+  errors,
 }: RuleFormProps) {
   return (
     <>
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="rule-name">Nom</FieldLabel>
+          <Field data-invalid={!!errors?.name}>
+            <FieldLabel htmlFor="rule-name" required>Nom</FieldLabel>
             <Input
               id="rule-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Nom de la règle"
             />
+            {errors?.name && <FieldError>{errors.name[0]}</FieldError>}
           </Field>
-          <Field>
-            <FieldLabel htmlFor="rule-match-type">Type de match</FieldLabel>
+          <Field data-invalid={!!errors?.matchType}>
+            <FieldLabel htmlFor="rule-match-type" required>Type de match</FieldLabel>
             <Select
               value={form.matchType}
               onValueChange={(v) => v && setForm({ ...form, matchType: v })}
@@ -78,16 +83,19 @@ export function RuleForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {MATCH_TYPES.map((mt) => (
-                  <SelectItem key={mt.value} value={mt.value}>
-                    {mt.label}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {MATCH_TYPES.map((mt) => (
+                    <SelectItem key={mt.value} value={mt.value}>
+                      {mt.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
+            {errors?.matchType && <FieldError>{errors.matchType[0]}</FieldError>}
           </Field>
-          <Field>
-            <FieldLabel htmlFor="rule-pattern">Motif</FieldLabel>
+          <Field data-invalid={!!errors?.pattern}>
+            <FieldLabel htmlFor="rule-pattern" required>Motif</FieldLabel>
             <Input
               id="rule-pattern"
               value={form.pattern}
@@ -96,9 +104,10 @@ export function RuleForm({
                 form.matchType === "REGEX" ? "Expression régulière" : "Texte à rechercher"
               }
             />
+            {errors?.pattern && <FieldError>{errors.pattern[0]}</FieldError>}
           </Field>
-          <Field>
-            <FieldLabel htmlFor="rule-category">Catégorie cible</FieldLabel>
+          <Field data-invalid={!!errors?.categoryId}>
+            <FieldLabel htmlFor="rule-category" required>Catégorie cible</FieldLabel>
             <Select
               value={form.categoryId}
               onValueChange={(v) => v && setForm({ ...form, categoryId: v })}
@@ -107,13 +116,26 @@ export function RuleForm({
                 <SelectValue placeholder="Sélectionner une catégorie" />
               </SelectTrigger>
               <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      <span
+                        className="size-4 shrink-0 flex items-center justify-center rounded-sm"
+                        style={cat.color ? { backgroundColor: cat.color + "22" } : undefined}
+                      >
+                        <CategoryIcon
+                          icon={cat.icon}
+                          className="size-3"
+                          style={cat.color ? { color: cat.color } : undefined}
+                        />
+                      </span>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
+            {errors?.categoryId && <FieldError>{errors.categoryId[0]}</FieldError>}
           </Field>
           <Field>
             <FieldLabel htmlFor="rule-description">Description</FieldLabel>
@@ -136,7 +158,7 @@ export function RuleForm({
         >
           {isPending ? (
             <>
-              <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />
+              <Spinner data-icon="inline-start" />
               Enregistrement...
             </>
           ) : isEdit ? (

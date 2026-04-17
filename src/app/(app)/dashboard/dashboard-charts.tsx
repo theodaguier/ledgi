@@ -27,6 +27,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { getDashboardMessages } from "@/lib/dashboard-messages";
+import type { AppLocale } from "@/lib/locale";
 import { formatCurrency } from "@/lib/transaction-amount";
 
 export type MonthlyDataPoint = {
@@ -56,23 +58,30 @@ const COLOR_EXPENSES = "#f43f5e"; // rose-500
 
 // ─── Monthly Trend ──────────────────────────────────────────────────────────
 
-const monthlyConfig: ChartConfig = {
-  income: {
-    label: "Revenus",
-    color: COLOR_INCOME,
-  },
-  expenses: {
-    label: "Dépenses",
-    color: COLOR_EXPENSES,
-  },
-};
+export function MonthlyTrendChart({
+  data,
+  locale,
+}: {
+  data: MonthlyDataPoint[];
+  locale: AppLocale;
+}) {
+  const messages = getDashboardMessages(locale);
+  const monthlyConfig: ChartConfig = {
+    income: {
+      label: messages.charts.income,
+      color: COLOR_INCOME,
+    },
+    expenses: {
+      label: messages.charts.expenses,
+      color: COLOR_EXPENSES,
+    },
+  };
 
-export function MonthlyTrendChart({ data }: { data: MonthlyDataPoint[] }) {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Tendance sur 6 mois</CardTitle>
-        <CardDescription>Revenus vs dépenses par mois</CardDescription>
+        <CardTitle>{messages.charts.trendTitle}</CardTitle>
+        <CardDescription>{messages.charts.trendDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer
@@ -99,12 +108,12 @@ export function MonthlyTrendChart({ data }: { data: MonthlyDataPoint[] }) {
             />
             <ChartTooltip
               content={
-                <ChartTooltipContent
-                  formatter={(value, name) => [
-                    formatCurrency(Number(value)),
-                    name,
-                  ]}
-                />
+                  <ChartTooltipContent
+                    formatter={(value, name) => [
+                      formatCurrency(Number(value), "EUR", locale),
+                      name,
+                    ]}
+                  />
               }
             />
             <ChartLegend content={<ChartLegendContent />} />
@@ -130,10 +139,13 @@ export function MonthlyTrendChart({ data }: { data: MonthlyDataPoint[] }) {
 export function CategoryDonutChart({
   data,
   total,
+  locale,
 }: {
   data: CategoryDataPoint[];
   total: number;
+  locale: AppLocale;
 }) {
+  const messages = getDashboardMessages(locale);
   const pieConfig: ChartConfig = Object.fromEntries(
     data.map((d) => [d.name, { label: d.name, color: d.color }])
   );
@@ -141,13 +153,15 @@ export function CategoryDonutChart({
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Dépenses par catégorie</CardTitle>
-        <CardDescription>Ce mois-ci · {formatCurrency(total)}</CardDescription>
+        <CardTitle>{messages.charts.expensesByCategoryTitle}</CardTitle>
+        <CardDescription>
+          {messages.charts.selectedPeriodAmount} · {formatCurrency(total, "EUR", locale)}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
           <div className="flex items-center justify-center h-[200px] text-muted-foreground text-sm">
-            Aucune dépense catégorisée ce mois
+            {messages.charts.noCategorizedExpensesInPeriod}
           </div>
         ) : (
           <>
@@ -175,7 +189,7 @@ export function CategoryDonutChart({
                   content={
                     <ChartTooltipContent
                       formatter={(value, name) => [
-                        formatCurrency(Number(value)),
+                        formatCurrency(Number(value), "EUR", locale),
                         name,
                       ]}
                     />
@@ -192,7 +206,7 @@ export function CategoryDonutChart({
                   />
                   <span className="text-sm truncate flex-1">{cat.name}</span>
                   <span className="text-sm font-medium tabular-nums">
-                    {formatCurrency(cat.amount)}
+                    {formatCurrency(cat.amount, "EUR", locale)}
                   </span>
                 </div>
               ))}
@@ -206,23 +220,30 @@ export function CategoryDonutChart({
 
 // ─── Daily Spending Area Chart ───────────────────────────────────────────────
 
-const dailyConfig: ChartConfig = {
-  cumulative: {
-    label: "Cumul dépenses",
-    color: "var(--destructive)",
-  },
-  daily: {
-    label: "Dépenses du jour",
-    color: "var(--primary)",
-  },
-};
+export function DailySpendingChart({
+  data,
+  locale,
+}: {
+  data: DailyDataPoint[];
+  locale: AppLocale;
+}) {
+  const messages = getDashboardMessages(locale);
+  const dailyConfig: ChartConfig = {
+    cumulative: {
+      label: messages.charts.cumulativeExpenses,
+      color: "var(--destructive)",
+    },
+    daily: {
+      label: messages.charts.dailyExpenses,
+      color: "var(--primary)",
+    },
+  };
 
-export function DailySpendingChart({ data }: { data: DailyDataPoint[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Dépenses quotidiennes</CardTitle>
-        <CardDescription>Évolution ce mois-ci</CardDescription>
+        <CardTitle>{messages.charts.dailySpendingTitle}</CardTitle>
+        <CardDescription>{messages.charts.dailySpendingDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer
@@ -266,7 +287,7 @@ export function DailySpendingChart({ data }: { data: DailyDataPoint[] }) {
               content={
                 <ChartTooltipContent
                   formatter={(value, name) => [
-                    formatCurrency(Number(value)),
+                    formatCurrency(Number(value), "EUR", locale),
                     name,
                   ]}
                 />
@@ -291,20 +312,24 @@ export function DailySpendingChart({ data }: { data: DailyDataPoint[] }) {
 export function TopCategoriesList({
   data,
   total: _total,
+  locale,
 }: {
   data: CategoryDataPoint[];
   total: number;
+  locale: AppLocale;
 }) {
+  const messages = getDashboardMessages(locale);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Top catégories</CardTitle>
-        <CardDescription>Dépenses ce mois-ci</CardDescription>
+        <CardTitle>{messages.charts.topCategoriesTitle}</CardTitle>
+        <CardDescription>{messages.charts.topCategoriesDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-4">
-            Aucune dépense catégorisée
+            {messages.charts.noCategorizedExpenses}
           </p>
         ) : (
           <div className="flex flex-col gap-4">
@@ -319,7 +344,7 @@ export function TopCategoriesList({
                     <span className="text-sm">{cat.name}</span>
                   </div>
                   <span className="text-sm font-medium tabular-nums">
-                    {formatCurrency(cat.amount)}
+                    {formatCurrency(cat.amount, "EUR", locale)}
                   </span>
                 </div>
                 <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">

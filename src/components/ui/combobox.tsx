@@ -6,6 +6,11 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+} from "@/components/ui/input-group";
 
 const ComboboxContext = React.createContext<{
   chipsRef: React.RefObject<Element | null> | null;
@@ -66,53 +71,51 @@ function ComboboxInput({
   triggerProps,
   clearProps,
   ...props
-}: ComboboxPrimitive.Input.Props & {
+}: Omit<ComboboxPrimitive.Input.Props, "className"> & {
+  className?: string;
   showTrigger?: boolean;
   showClear?: boolean;
   triggerProps?: ComboboxPrimitive.Trigger.Props;
   clearProps?: ComboboxPrimitive.Clear.Props;
 }) {
   return (
-    <ComboboxPrimitive.InputGroup
-      className={cn("relative flex h-9 w-full min-w-0 items-center rounded-3xl border border-transparent bg-input/50 px-3 py-1 text-sm transition-[color,box-shadow,background-color] outline-none has-disabled:opacity-50", className)}
-      data-slot="combobox-input-group"
-    >
+    <InputGroup data-slot="combobox-input-group" className={cn("rounded-3xl", className)}>
       <ComboboxPrimitive.Input
         render={
           <input
-            className={cn(
-              "flex-1 border-0 bg-transparent outline-none placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-            )}
             data-slot="input-group-control"
             disabled={disabled}
+            className="flex-1 rounded-none border-0 bg-transparent px-3 font-heading text-base outline-none placeholder:text-muted-foreground placeholder:font-heading disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
           />
         }
         {...props}
       />
       {showTrigger && (
-        <ComboboxTrigger
-          className={cn(
-            "absolute end-0 inline-flex size-6 items-center justify-center rounded-xl text-muted-foreground opacity-80 hover:opacity-100 disabled:pointer-events-none disabled:opacity-50",
-          )}
-          data-slot="combobox-trigger"
-          {...triggerProps}
-        >
-          <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="size-3.5" />
-        </ComboboxTrigger>
+        <InputGroupAddon align="inline-end">
+          <ComboboxPrimitive.Trigger
+            render={
+              <InputGroupButton variant="ghost" size="icon-xs">
+                <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} />
+              </InputGroupButton>
+            }
+            {...triggerProps}
+          />
+        </InputGroupAddon>
       )}
       {showClear && (
-        <ComboboxClear
-          className={cn(
-            "absolute end-0 inline-flex size-6 items-center justify-center rounded-xl text-muted-foreground opacity-80 hover:opacity-100 disabled:pointer-events-none disabled:opacity-50",
-          )}
-          data-slot="combobox-clear"
-          {...clearProps}
-        >
-          <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-3.5" />
-        </ComboboxClear>
+        <InputGroupAddon align="inline-end">
+          <ComboboxPrimitive.Clear
+            render={
+              <InputGroupButton variant="ghost" size="icon-xs">
+                <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+              </InputGroupButton>
+            }
+            {...clearProps}
+          />
+        </InputGroupAddon>
       )}
       {children}
-    </ComboboxPrimitive.InputGroup>
+    </InputGroup>
   );
 }
 
@@ -134,7 +137,7 @@ function ComboboxPopup({
     portalProps?: ComboboxPrimitive.Portal.Props;
   }) {
   const { chipsRef, multiple } = React.useContext(ComboboxContext);
-  const anchorResolved = anchor ?? (multiple && chipsRef?.current ? chipsRef : undefined);
+  const anchorResolved = anchor ?? (multiple ? chipsRef : undefined);
 
   return (
     <ComboboxPrimitive.Portal {...portalProps}>
@@ -149,7 +152,7 @@ function ComboboxPopup({
         <ComboboxPrimitive.Popup
           data-slot="combobox-popup"
           className={cn(
-            "flex min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-3xl border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5",
+            "flex flex-col min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden rounded-3xl border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
             "dark:ring-foreground/10",

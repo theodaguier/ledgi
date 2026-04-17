@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/auth";
 import { verifyApiKey, requireScope } from "@/lib/api-auth";
+import { computeRealBalances } from "@/lib/account-balance";
 
 type AccountType = "CHECKING" | "SAVINGS" | "CREDIT_CARD" | "INVESTMENT" | "OTHER";
 
@@ -39,23 +40,34 @@ export async function PATCH(
     return Response.json({ error: "Account not found" }, { status: 404 });
   }
 
+  const referenceBalanceDate = body.referenceBalanceDate !== undefined
+    ? (body.referenceBalanceDate ? new Date(body.referenceBalanceDate) : null)
+    : undefined;
+
   const updated = await prisma.bankAccount.update({
     where: { id },
     data: {
       ...(body.name !== undefined && { name: body.name }),
       ...(body.type !== undefined && { type: body.type as AccountType }),
       ...(body.bankName !== undefined && { bankName: body.bankName }),
+      ...(body.bankInstitutionId !== undefined && { bankInstitutionId: body.bankInstitutionId }),
       ...(body.accountNumber !== undefined && { accountNumber: body.accountNumber }),
-      ...(body.balance !== undefined && { balance: body.balance }),
+      ...(body.referenceBalance !== undefined && { referenceBalance: body.referenceBalance }),
+      ...(referenceBalanceDate !== undefined && { referenceBalanceDate }),
       ...(body.currency !== undefined && { currency: body.currency }),
     },
   });
+
+  const realBalances = await computeRealBalances(workspaceId, [id]);
 
   return Response.json({
     id: updated.id,
     name: updated.name,
     bankName: updated.bankName,
-    balance: updated.balance?.toString() ?? null,
+    bankInstitutionId: updated.bankInstitutionId,
+    referenceBalance: updated.referenceBalance?.toString() ?? null,
+    referenceBalanceDate: updated.referenceBalanceDate?.toISOString() ?? null,
+    currentBalance: (realBalances.get(id) ?? 0).toFixed(2),
     currency: updated.currency,
     isActive: updated.isActive,
     createdAt: updated.createdAt.toISOString(),
@@ -95,13 +107,6 @@ export async function DELETE(
 
   if (!account) {
     return Response.json({ error: "Account not found" }, { status: 404 });
-  }
-
-  if (account._count.transactions > 0) {
-    return Response.json(
-      { error: "Cannot delete an account with existing transactions" },
-      { status: 409 }
-    );
   }
 
   await prisma.bankAccount.delete({ where: { id } });

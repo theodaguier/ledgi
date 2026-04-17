@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import React, { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   createAccount,
@@ -17,21 +17,47 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { Plus, Pencil, Trash2, Landmark } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Landmark,
+  MoreHorizontal,
+  CreditCard,
+  PiggyBank,
+  TrendingUp,
+  Wallet,
+  Receipt,
+} from "lucide-react";
 import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { getAppMessages } from "@/lib/app-messages";
 import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
+import type { AppLocale } from "@/lib/locale";
+import { formatCurrency } from "@/lib/transaction-amount";
+import { fetchBankLogos } from "@/lib/bank-logos-cache";
 import { AccountForm } from "./account-form";
+import { accountFormSchema } from "@/lib/validation/schemas";
 
 interface Account {
   id: string;
   name: string;
   type: string | null;
   bankName: string | null;
+  bankInstitutionId: string | null;
+  bankBrandDomain: string | null;
   accountNumber: string | null;
-  balance: number | string | null;
+  currentBalance: number;
+  referenceBalance: number | null;
+  referenceBalanceDate: Date | null;
   currency: string;
   isActive: boolean;
   createdAt: Date;
@@ -42,16 +68,24 @@ interface AccountFormState {
   name: string;
   type: string;
   bankName: string;
+  bankInstitutionId: string;
+  bankBrandDomain: string;
   accountNumber: string;
-  balance: string;
+  referenceBalance: string;
+  referenceBalanceDate: string;
   currency: string;
 }
 
 export default function AccountsPageClient({
   accounts,
+  locale,
+  initialBrandLogos,
 }: {
   accounts: Account[];
+  locale: AppLocale;
+  initialBrandLogos?: Record<string, string>;
 }) {
+  const messages = getAppMessages(locale).accounts;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isCreating, setIsCreating] = useState(false);
@@ -61,41 +95,66 @@ export default function AccountsPageClient({
     name: "",
     type: "CHECKING",
     bankName: "",
+    bankInstitutionId: "",
+    bankBrandDomain: "",
     accountNumber: "",
-    balance: "",
+    referenceBalance: "",
+    referenceBalanceDate: "",
     currency: "EUR",
   });
 
+  const [brandLogos, setBrandLogos] = useState<Record<string, string>>(initialBrandLogos ?? {});
+  const [formErrors, setFormErrors] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    const institutionIds = accounts
+      .map((acc) => acc.bankInstitutionId)
+      .filter((id): id is string => Boolean(id));
+    if (institutionIds.length === 0) return;
+    fetchBankLogos(institutionIds)
+      .then(setBrandLogos)
+      .catch(() => {});
+  }, [accounts]);
+
   const handleSubmit = (isEdit: boolean) => {
-    if (!form.name.trim()) return;
+    const parsed = accountFormSchema.safeParse(form);
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setFormErrors(fieldErrors);
+      return;
+    }
+    setFormErrors({});
 
     startTransition(async () => {
       try {
+        const payload = {
+          name: form.name,
+          type: form.type,
+          bankName: form.bankName || null,
+          bankInstitutionId: form.bankInstitutionId || null,
+          bankBrandDomain: form.bankBrandDomain || null,
+          accountNumber: form.accountNumber || null,
+          referenceBalance: form.referenceBalance ? parseFloat(form.referenceBalance) : null,
+          referenceBalanceDate: form.referenceBalanceDate ? new Date(form.referenceBalanceDate) : null,
+          currency: form.currency,
+        };
+
         if (isEdit && editingAccount) {
-          await updateAccount(editingAccount.id, {
-            name: form.name,
-            type: form.type,
-            bankName: form.bankName || null,
-            accountNumber: form.accountNumber || null,
-            balance: form.balance ? parseFloat(form.balance) : null,
-            currency: form.currency,
-          });
-          toast.success("Compte mis à jour");
+          await updateAccount(editingAccount.id, payload);
+          toast.success(messages.updateSuccess);
         } else {
-          await createAccount({
-            name: form.name,
-            type: form.type,
-            bankName: form.bankName || null,
-            accountNumber: form.accountNumber || null,
-            balance: form.balance ? parseFloat(form.balance) : null,
-            currency: form.currency,
-          });
-          toast.success("Compte créé");
+          await createAccount(payload);
+          toast.success(messages.createSuccess);
         }
         resetForm();
         router.refresh();
       } catch {
-        toast.error("Erreur lors de l'enregistrement");
+        toast.error(messages.saveError);
       }
     });
   };
@@ -109,10 +168,10 @@ export default function AccountsPageClient({
     startTransition(async () => {
       try {
         await deleteAccount(pendingDelete.id);
-        toast.success("Compte supprimé");
+        toast.success(messages.deleteSuccess);
         router.refresh();
       } catch {
-        toast.error("Erreur lors de la suppression");
+        toast.error(messages.deleteError);
       } finally {
         setPendingDelete(null);
       }
@@ -126,10 +185,14 @@ export default function AccountsPageClient({
       name: "",
       type: "CHECKING",
       bankName: "",
+      bankInstitutionId: "",
+      bankBrandDomain: "",
       accountNumber: "",
-      balance: "",
+      referenceBalance: "",
+      referenceBalanceDate: "",
       currency: "EUR",
     });
+    setFormErrors({});
   };
 
   const openEdit = (acc: Account) => {
@@ -138,8 +201,13 @@ export default function AccountsPageClient({
       name: acc.name,
       type: acc.type ?? "CHECKING",
       bankName: acc.bankName ?? "",
+      bankInstitutionId: acc.bankInstitutionId ?? "",
+      bankBrandDomain: acc.bankBrandDomain ?? "",
       accountNumber: acc.accountNumber ?? "",
-      balance: acc.balance?.toString() ?? "",
+      referenceBalance: acc.referenceBalance != null ? acc.referenceBalance.toString() : "",
+      referenceBalanceDate: acc.referenceBalanceDate
+        ? new Date(acc.referenceBalanceDate).toISOString().split("T")[0]
+        : "",
       currency: acc.currency,
     });
   };
@@ -149,138 +217,156 @@ export default function AccountsPageClient({
     setIsCreating(true);
   };
 
-  function formatCurrency(amount: number, currency = "EUR") {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency,
-    }).format(amount);
-  }
-
   const totalBalance = accounts.reduce((sum, acc) => {
-    const bal =
-      typeof acc.balance === "string"
-        ? parseFloat(acc.balance)
-        : (acc.balance ?? 0);
-    return sum + bal;
+    return sum + acc.currentBalance;
   }, 0);
 
   const totalCurrency = accounts[0]?.currency ?? "EUR";
 
+  const accountTypeConfig: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+    CHECKING: { icon: Wallet, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/40" },
+    SAVINGS: { icon: PiggyBank, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/40" },
+    CREDIT_CARD: { icon: CreditCard, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-950/40" },
+    INVESTMENT: { icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/40" },
+    OTHER: { icon: Landmark, color: "text-slate-600", bg: "bg-slate-100 dark:bg-slate-800/60" },
+  };
+
   return (
     <AppPageShell>
       <AppPageHeader
-        title="Comptes"
-        description={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`}
+        title={messages.title}
+        description={messages.description(accounts.length)}
         actions={
           <Button onClick={openCreate} className="shrink-0">
             <Plus className="size-4" data-icon="inline-start" />
-            Nouveau compte
+            {messages.newAccount}
           </Button>
         }
       />
 
       {/* Total Balance */}
-      <Card>
-        <CardContent className="flex items-center gap-4 py-4">
-          <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10 shrink-0">
-            <Landmark className="size-5 text-primary" />
+      <Card className="border-border/60">
+        <CardContent className="flex items-center justify-between gap-4 py-5 px-6">
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{messages.totalBalance}</p>
+              <p className="text-3xl font-semibold tracking-tight tabular-nums">
+                {formatCurrency(totalBalance, totalCurrency, locale)}
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <p className="text-sm text-muted-foreground">Solde total</p>
-            <p className="text-2xl tracking-tight">
-              {formatCurrency(totalBalance, totalCurrency)}
-            </p>
+          <div className="text-right hidden sm:block">
+            <p className="text-xs text-muted-foreground">{accounts.length} {accounts.length > 1 ? "comptes" : "compte"}</p>
           </div>
         </CardContent>
       </Card>
 
       {/* Accounts Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {accounts.map((acc) => (
-          <Card key={acc.id}>
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-col gap-1 min-w-0">
-                  <CardTitle className="text-base">{acc.name}</CardTitle>
-                  {acc.bankName && (
-                    <p className="text-xs text-muted-foreground">
-                      {acc.bankName}
-                    </p>
-                  )}
-                  {acc.type && (
-                    <p className="text-xs text-muted-foreground capitalize">
-                      {acc.type === "CHECKING" ? "Compte courant" :
-                       acc.type === "SAVINGS" ? "Compte d'épargne" :
-                       acc.type === "CREDIT_CARD" ? "Carte de crédit" :
-                       acc.type === "INVESTMENT" ? "Investissement" : "Autre"}
-                    </p>
-                  )}
+        {accounts.map((acc) => {
+          const typeKey = (acc.type ?? "OTHER") as keyof typeof accountTypeConfig;
+          const { icon: TypeIcon, color, bg } = accountTypeConfig[typeKey] ?? accountTypeConfig.OTHER;
+          const balance = acc.currentBalance;
+          const isPositive = balance >= 0;
+          const logoUrl = acc.bankInstitutionId ? (brandLogos[acc.bankInstitutionId] ?? null) : null;
+
+          return (
+            <Card key={acc.id} className="group relative overflow-hidden border-border/60">
+              <CardHeader className="pb-3 pt-5 px-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {logoUrl ? (
+                        <div className="size-9 rounded-lg shrink-0 flex items-center justify-center bg-muted/30">
+                          <img
+                            src={logoUrl}
+                            alt={acc.bankName ?? ""}
+                            className="size-6 rounded object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <div className={`flex items-center justify-center size-9 rounded-lg shrink-0 ${bg}`}>
+                          <TypeIcon className={`size-4 ${color}`} />
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <CardTitle className="text-sm font-semibold truncate leading-tight">{acc.name}</CardTitle>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {acc.bankName ?? ((messages.accountTypes as Record<string, string>)[typeKey] ?? messages.accountTypes.OTHER)}
+                        </p>
+                      </div>
+                    </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="size-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <MoreHorizontal className="size-4" />
+                        <span className="sr-only">{messages.actionsLabel}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(acc)}>
+                        <Pencil className="size-4" />
+                        {messages.edit}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => handleDelete(acc)}
+                      >
+                        <Trash2 className="size-4" />
+                        {messages.delete}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <Badge variant="secondary" className="shrink-0">
-                  {acc.currency}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs text-muted-foreground">Solde</span>
-                <span>
-                  {acc.balance != null
-                    ? formatCurrency(
-                        parseFloat(acc.balance.toString()),
-                        acc.currency,
-                      )
-                    : "—"}
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Transactions
-                </span>
-                <span className="text-sm">{acc._count.transactions}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Créé le {format(new Date(acc.createdAt), "dd/MM/yyyy")}
-              </p>
-              <div className="flex gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => openEdit(acc)}
-                >
-                  <Pencil className="size-3" data-icon="inline-start" />
-                  Modifier
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(acc)}
-                  disabled={acc._count.transactions > 0}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardHeader>
+
+              <CardContent className="px-5 pb-5 flex flex-col gap-4">
+                {/* Balance */}
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs text-muted-foreground">{messages.balance}</span>
+                  <span className={`text-2xl font-semibold tracking-tight tabular-nums ${isPositive ? "" : "text-destructive"}`}>
+                    {formatCurrency(balance, acc.currency, locale)}
+                  </span>
+                </div>
+
+                {/* Divider */}
+                <div className="h-px bg-border/60" />
+
+                {/* Footer stats */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Receipt className="size-3.5" />
+                    <span>{acc._count.transactions} {messages.transactions.toLowerCase()}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal border-border/60">
+                      {acc.currency} {new Intl.NumberFormat(locale, { style: "currency", currency: acc.currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).formatToParts(0).find(p => p.type === "currency")?.value}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Create Sheet */}
       <Sheet open={isCreating} onOpenChange={(open) => !open && resetForm()}>
         <SheetContent side="right">
           <SheetHeader>
-            <SheetTitle>Nouveau compte</SheetTitle>
+            <SheetTitle>{messages.newSheetTitle}</SheetTitle>
             <SheetDescription>
-              Ajoutez un nouveau compte bancaire pour suivre vos transactions.
+              {messages.newSheetDescription}
             </SheetDescription>
           </SheetHeader>
           <AccountForm
             form={form}
             setForm={setForm}
+            locale={locale}
             isPending={isPending}
             onSubmit={() => handleSubmit(false)}
             onCancel={resetForm}
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>
@@ -292,16 +378,18 @@ export default function AccountsPageClient({
       >
         <SheetContent side="right">
           <SheetHeader>
-            <SheetTitle>Modifier le compte</SheetTitle>
+            <SheetTitle>{messages.editSheetTitle}</SheetTitle>
             <SheetDescription>{editingAccount?.name}</SheetDescription>
           </SheetHeader>
           <AccountForm
             form={form}
             setForm={setForm}
+            locale={locale}
             isPending={isPending}
             onSubmit={() => handleSubmit(true)}
             onCancel={() => setEditingAccount(null)}
             isEdit
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>
@@ -309,9 +397,13 @@ export default function AccountsPageClient({
       <ConfirmActionDialog
         open={!!pendingDelete}
         onOpenChange={(open) => !open && setPendingDelete(null)}
-        title="Supprimer ce compte ?"
-        description="Cette action est définitive. Elle n'est pas possible si des transactions sont liées à ce compte."
-        confirmLabel="Supprimer"
+        title={messages.deleteDialogTitle}
+        description={
+          pendingDelete && pendingDelete._count.transactions > 0
+            ? messages.deleteDialogDescription(pendingDelete._count.transactions)
+            : messages.deleteDialogDescription(0)
+        }
+        confirmLabel={messages.deleteDialogConfirm}
         destructive
         pending={isPending}
         onConfirm={confirmDelete}

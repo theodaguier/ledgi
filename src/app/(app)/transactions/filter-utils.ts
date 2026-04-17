@@ -11,6 +11,13 @@ export function getSearchParam(
   return typeof value === "string" ? value : value?.[0];
 }
 
+export function getAllSearchParams(
+  value: string | string[] | undefined,
+): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 export function isTransactionDatePreset(
   value: string | undefined,
 ): value is TransactionDatePreset {

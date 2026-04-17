@@ -3,6 +3,7 @@ import { ImportStatus, Prisma } from "@prisma/client";
 import type { Metadata } from "next";
 import ImportsPageClient from "./page-client";
 import { getWorkspaceContext, listWorkspaceMembers } from "@/lib/workspace";
+import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
 
 type ImportsSearchParams = Promise<{
   q?: string | string[];
@@ -31,9 +32,15 @@ export default async function ImportsPage({
     listWorkspaceMembers(ctx.workspaceId),
     prisma.bankAccount.findMany({
       where: { workspaceId: ctx.workspaceId, isActive: true },
-      select: { id: true, name: true, bankName: true },
+      select: { id: true, name: true, bankName: true, bankInstitutionId: true },
     }),
   ]);
+
+  const initialBrandLogos = await getBankLogosByInstitutionIds(
+    accounts
+      .map((acc) => acc.bankInstitutionId)
+      .filter((id): id is string => Boolean(id))
+  );
 
   const rawParams = await searchParams;
   const rawStatus = getSearchParam(rawParams.status);
@@ -102,8 +109,8 @@ export default async function ImportsPage({
       errorCount: true,
       createdAt: true,
       createdByUserId: true,
-      bankAccount: {
-        select: { id: true, name: true, bankName: true },
+bankAccount: {
+        select: { id: true, name: true, bankName: true, bankInstitutionId: true },
       },
     },
   });
@@ -123,6 +130,7 @@ export default async function ImportsPage({
         name: m.user.name,
         email: m.user.email,
       }))}
+      initialBrandLogos={initialBrandLogos}
     />
   );
 }

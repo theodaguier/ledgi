@@ -39,7 +39,7 @@ export const auth = betterAuth({
         return hash(pwd, salt);
       },
       verify: async ({ hash: h, password: pwd }) => {
-        return compare(h, pwd);
+        return compare(pwd, h);
       },
     },
     sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {

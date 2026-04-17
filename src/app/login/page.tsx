@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { WalletIcon, Loading03Icon } from "@hugeicons/core-free-icons";
+import { WalletIcon } from "@hugeicons/core-free-icons";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { siteConfig } from "@/config";
 
@@ -25,13 +26,15 @@ function LoginForm() {
   const inviteToken = searchParams.get("invite");
   const prefillEmail = searchParams.get("email") ?? "";
 
-  const [email, setEmail] = useState(() => prefillEmail);
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const email = (formData.get("email") as string | null)?.trim() ?? "";
+    const password = formData.get("password") as string | null ?? "";
 
     try {
       const result = await signInWithEmail(email, password);
@@ -85,10 +88,11 @@ function LoginForm() {
                   <FieldLabel htmlFor="email">Email</FieldLabel>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     placeholder="email@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    defaultValue={prefillEmail}
                     required
                     disabled={isLoading}
                   />
@@ -98,10 +102,10 @@ function LoginForm() {
                   <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
                   <Input
                     id="password"
+                    name="password"
                     type="password"
+                    autoComplete="current-password"
                     placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={isLoading}
                   />
@@ -115,11 +119,7 @@ function LoginForm() {
               >
                 {isLoading ? (
                   <>
-                    <HugeiconsIcon
-                      icon={Loading03Icon}
-                      className="size-4 animate-spin"
-                      data-icon="inline-start"
-                    />
+                    <Spinner data-icon="inline-start" />
                     Connexion...
                   </>
                 ) : (
@@ -165,10 +165,7 @@ export default function LoginPage() {
             </div>
             <Card>
               <CardContent className="flex items-center justify-center py-12">
-                <HugeiconsIcon
-                  icon={Loading03Icon}
-                  className="size-8 animate-spin text-muted-foreground"
-                />
+                <Spinner className="size-8 text-muted-foreground" />
               </CardContent>
             </Card>
           </div>

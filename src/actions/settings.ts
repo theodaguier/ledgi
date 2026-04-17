@@ -6,7 +6,9 @@ import { createApiKey } from "@/lib/api-auth";
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import type { Scope } from "@/lib/api-auth";
+import { normalizeAppLocale } from "@/lib/locale";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { apiKeyFormSchema } from "@/lib/validation/schemas";
 
 export async function changePassword(currentPassword: string, newPassword: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -99,10 +101,15 @@ export async function updateUserSettings(data: {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user) throw new Error("Not authenticated");
 
+  const nextData = {
+    ...data,
+    ...(data.locale !== undefined ? { locale: normalizeAppLocale(data.locale) } : {}),
+  };
+
   const settings = await prisma.userSettings.upsert({
     where: { userId: session.user.id },
-    update: data,
-    create: { userId: session.user.id, ...data },
+    update: nextData,
+    create: { userId: session.user.id, ...nextData },
   });
 
   revalidatePath("/settings");
@@ -139,6 +146,12 @@ export async function createNewApiKey(
   scopes: Scope[],
   expiresAtDays: number | null
 ) {
+  const parsed = apiKeyFormSchema.safeParse({ name });
+  if (!parsed.success) {
+    const error = parsed.error.issues[0];
+    throw new Error(error?.message ?? "Validation failed");
+  }
+
   const ctx = await getWorkspaceContext();
 
   const expiresAt = expiresAtDays

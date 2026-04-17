@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { WalletIcon, Loading03Icon } from "@hugeicons/core-free-icons";
+import { WalletIcon } from "@hugeicons/core-free-icons";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { siteConfig } from "@/config";
 
@@ -136,11 +137,7 @@ function RegisterForm() {
               >
                 {isLoading ? (
                   <>
-                    <HugeiconsIcon
-                      icon={Loading03Icon}
-                      className="size-4 animate-spin"
-                      data-icon="inline-start"
-                    />
+                    <Spinner data-icon="inline-start" />
                     Création en cours...
                   </>
                 ) : inviteToken ? (
@@ -184,10 +181,7 @@ export default function RegisterPage() {
             </div>
             <Card>
               <CardContent className="flex items-center justify-center py-12">
-                <HugeiconsIcon
-                  icon={Loading03Icon}
-                  className="size-8 animate-spin text-muted-foreground"
-                />
+                <Spinner className="size-8 text-muted-foreground" />
               </CardContent>
             </Card>
           </div>

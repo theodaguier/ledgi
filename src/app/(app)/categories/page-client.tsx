@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+
 import {
   Sheet,
   SheetContent,
@@ -18,7 +18,14 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { Plus, Pencil, Trash2, Tags } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
@@ -28,6 +35,7 @@ import {
   CategoryIcon,
   type CategoryFormState,
 } from "./category-form";
+import { categoryFormSchema } from "@/lib/validation/schemas";
 
 interface Category {
   id: string;
@@ -60,9 +68,22 @@ export default function CategoriesPageClient({
   const [isCreating, setIsCreating] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Category | null>(null);
   const [form, setForm] = useState<CategoryFormState>(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState<Record<string, string[]>>({});
 
   const handleCreate = () => {
-    if (!form.name.trim()) return;
+    const parsed = categoryFormSchema.safeParse(form);
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setFormErrors(fieldErrors);
+      return;
+    }
+    setFormErrors({});
+
     startTransition(async () => {
       try {
         await createCategory(
@@ -75,6 +96,7 @@ export default function CategoriesPageClient({
         toast.success("Catégorie créée");
         setIsCreating(false);
         setForm(EMPTY_FORM);
+        setFormErrors({});
         router.refresh();
       } catch {
         toast.error("Erreur lors de la création");
@@ -83,7 +105,20 @@ export default function CategoriesPageClient({
   };
 
   const handleUpdate = () => {
-    if (!editingCat || !form.name.trim()) return;
+    if (!editingCat) return;
+    const parsed = categoryFormSchema.safeParse(form);
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setFormErrors(fieldErrors);
+      return;
+    }
+    setFormErrors({});
+
     startTransition(async () => {
       try {
         await updateCategory(
@@ -158,10 +193,7 @@ export default function CategoriesPageClient({
       {/* Expense Categories */}
       {expenseCategories.length > 0 && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Tags className="size-4 text-muted-foreground" />
-            <h2 className="text-sm">Dépenses</h2>
-          </div>
+          <h2 className="text-sm font-medium text-muted-foreground">Dépenses</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {expenseCategories.map((cat) => (
               <CategoryCard
@@ -177,9 +209,8 @@ export default function CategoriesPageClient({
 
       {incomeCategories.length > 0 && (
         <>
-          <Separator />
           <div className="flex flex-col gap-3">
-            <h2 className="text-sm">Revenus</h2>
+            <h2 className="text-sm font-medium text-muted-foreground">Revenus</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {incomeCategories.map((cat) => (
                 <CategoryCard
@@ -213,6 +244,7 @@ export default function CategoriesPageClient({
             isPending={isPending}
             onSubmit={handleCreate}
             onCancel={() => setIsCreating(false)}
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>
@@ -234,6 +266,7 @@ export default function CategoriesPageClient({
             onSubmit={handleUpdate}
             onCancel={() => setEditingCat(null)}
             isEdit
+            errors={formErrors}
           />
         </SheetContent>
       </Sheet>
@@ -264,7 +297,7 @@ function CategoryCard({
   showIncomeBadge?: boolean;
 }) {
   return (
-    <Card className="relative">
+    <Card className="relative group">
       <CardContent className="flex items-start justify-between gap-3 p-4">
         <div className="flex items-start gap-3 min-w-0">
           {cat.icon && (
@@ -302,14 +335,29 @@ function CategoryCard({
           </div>
         </div>
         {!cat.isSystem && (
-          <div className="flex gap-1 shrink-0">
-            <Button variant="ghost" size="icon-sm" onClick={onEdit}>
-              <Pencil className="size-3" />
-            </Button>
-            <Button variant="ghost" size="icon-sm" onClick={onDelete}>
-              <Trash2 className="size-3" />
-            </Button>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreHorizontal />
+                <span className="sr-only">Actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onEdit}>
+                <Pencil />
+                Modifier
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
+                Supprimer
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </CardContent>
     </Card>

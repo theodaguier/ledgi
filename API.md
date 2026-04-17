@@ -191,8 +191,11 @@ Retrieve all bank accounts in the workspace.
       "name": "Compte Courant BNP",
       "type": "CHECKING",
       "bankName": "BNP Paribas",
+      "bankInstitutionId": "BNP_PARIBAS_BNPAFRPPXXX",
       "accountNumber": "FR76 1234...",
-      "balance": "1523.45",
+      "referenceBalance": "5000.00",
+      "referenceBalanceDate": "2025-01-15T10:30:00.000Z",
+      "currentBalance": "6523.45",
       "currency": "EUR",
       "isActive": true,
       "transactionCount": 87,
@@ -203,7 +206,8 @@ Retrieve all bank accounts in the workspace.
 ```
 
 **Notes:**
-- `balance` is returned as a string to preserve decimal precision (Decimal type)
+- `referenceBalance` is the known balance at `referenceBalanceDate` (stored in DB as Decimal, returned as string)
+- `currentBalance` is computed as `referenceBalance + sum of transactions after referenceBalanceDate`
 - `transactionCount` is the total number of transactions linked to this account
 
 ---
@@ -219,8 +223,10 @@ Create a new bank account.
   "name": "Livret A",
   "type": "SAVINGS",
   "bankName": "La Banque Postale",
+  "bankInstitutionId": "LA_BANQUE_POSTALE_LAPOFRPPXXX",
   "accountNumber": "12345678901",
-  "balance": 5000.00,
+  "referenceBalance": 5000.00,
+  "referenceBalanceDate": "2025-04-17",
   "currency": "EUR"
 }
 ```
@@ -230,8 +236,10 @@ Create a new bank account.
 | `name` | `string` | **Yes** | — | Display name for the account |
 | `type` | `AccountType` | No | `CHECKING` | Account type |
 | `bankName` | `string` | No | `null` | Name of the bank |
+| `bankInstitutionId` | `string` | No | `null` | GoCardless/Nordigen institution ID, used to resolve bank logo |
 | `accountNumber` | `string` | No | `null` | Full or partial account number |
-| `balance` | `number` | No | `0` | Current balance |
+| `referenceBalance` | `number` | No | `0` | Known balance at the reference date |
+| `referenceBalanceDate` | `string` (ISO date) | No | `null`, or current timestamp if `referenceBalance` is provided | Date at which `referenceBalance` is accurate. Transactions after this date are used to compute `currentBalance`. When `referenceBalance` is provided without `referenceBalanceDate`, the current server timestamp is used automatically. |
 | `currency` | `string` | No | `"EUR"` | Currency code (ISO 4217) |
 
 **`AccountType` values:** `CHECKING`, `SAVINGS`, `CREDIT_CARD`, `INVESTMENT`, `OTHER`
@@ -244,8 +252,10 @@ Create a new bank account.
   "name": "Livret A",
   "type": "SAVINGS",
   "bankName": "La Banque Postale",
+  "bankInstitutionId": "LA_BANQUE_POSTALE_LAPOFRPPXXX",
   "accountNumber": "12345678901",
-  "balance": "5000.00",
+  "referenceBalance": "5000.00",
+  "referenceBalanceDate": "2025-04-17T00:00:00.000Z",
   "currency": "EUR",
   "isActive": true,
   "createdAt": "2025-01-15T10:30:00.000Z"
@@ -274,8 +284,10 @@ Update a bank account. All fields are optional; only provided fields are updated
   "name": "Nouveau Nom",
   "type": "SAVINGS",
   "bankName": "Autre Banque",
+  "bankInstitutionId": "AUTRE_BANQUE_XXXXFRPPXXX",
   "accountNumber": "98765432109",
-  "balance": 6000.00,
+  "referenceBalance": 6000.00,
+  "referenceBalanceDate": "2025-04-17",
   "currency": "EUR"
 }
 ```
@@ -287,7 +299,9 @@ Update a bank account. All fields are optional; only provided fields are updated
   "id": "ckvabc123...",
   "name": "Nouveau Nom",
   "bankName": "Autre Banque",
-  "balance": "6000.00",
+  "referenceBalance": "6000.00",
+  "referenceBalanceDate": "2025-04-17T00:00:00.000Z",
+  "currentBalance": "6523.45",
   "currency": "EUR",
   "isActive": true,
   "createdAt": "2025-01-15T10:30:00.000Z"
@@ -313,9 +327,8 @@ Delete a bank account.
 
 **Errors:**
 - `404`: Account not found or not in workspace
-- `409`: Account has existing transactions (cannot delete)
 
-**Business rule:** An account with transactions cannot be deleted. This is enforced at the application level (no database CASCADE on `bankAccountId` in `Transaction` model).
+**Business rule:** Deleting an account cascade-deletes all its transactions via `ON DELETE CASCADE` at the database level.
 
 ---
 
@@ -343,6 +356,7 @@ List and filter transactions in the workspace. Returns a paginated list ordered 
 | `q` | `string` | No | — | Full-text search in `label`, `labelNormalized`, `merchant` (case-insensitive) |
 | `limit` | `integer` | No | `50` | Page size, max `200` |
 | `offset` | `integer` | No | `0` | Pagination offset (0-indexed) |
+| `pinned` | `string` | No | — | Filter pinned transactions: `"1"` for pinned only, `"0"` for unpinned only |
 
 **Preset behavior:**
 - `"today"`: Current calendar day (00:00:00 to now)
@@ -384,7 +398,9 @@ List and filter transactions in the workspace. Returns a paginated list ordered 
       },
       "isAutomatic": true,
       "ownerUserId": "ckvuser001...",
-      "createdAt": "2025-04-15T08:23:00.000Z"
+      "createdAt": "2025-04-15T08:23:00.000Z",
+      "note": "Remboursement attendu",
+      "pinned": false
     }
   ],
   "pagination": {
@@ -401,6 +417,8 @@ List and filter transactions in the workspace. Returns a paginated list ordered 
 - `labelNormalized` is the label lowercased and trimmed
 - `merchant` is extracted from the label (first word or recognized merchant name)
 - `confidence` is a float 0-1 indicating categorization confidence
+- `note` is an optional free-text annotation (null when not set)
+- `pinned` is a boolean indicating whether the transaction is pinned for quick access
 
 ---
 
@@ -443,7 +461,7 @@ Get aggregated totals for expenses, income, and transfers over a period.
 
 ### `PATCH /api/v1/transactions/[id]`
 
-Update a transaction's category. Also learns the manual label association for future automatic categorization.
+Update a transaction's category, note, and/or pinned status. Also learns the manual label association for future automatic categorization when `categoryId` is provided.
 
 **Path parameters:**
 
@@ -455,17 +473,22 @@ Update a transaction's category. Also learns the manual label association for fu
 
 ```json
 {
-  "categoryId": "ckvcat001..." | null
+  "categoryId": "ckvcat001..." | null,
+  "note": "Optional annotation text",
+  "pinned": true
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `categoryId` | `string \| null` | **Yes** | Category ID to assign, or `null` to uncategorize |
+| `categoryId` | `string \| null` | No | Category ID to assign, or `null` to uncategorize. When provided, triggers manual label learning. |
+| `note` | `string \| null` | No | Free-text annotation. Pass `null` to clear. |
+| `pinned` | `boolean` | No | Whether the transaction is pinned. |
 
 **Side effects:**
-- If `categoryId` is provided: creates or updates a `ManualLabelCategory` entry mapping `labelNormalized + type` → `categoryId`. This enables future automatic categorization.
+- If `categoryId` is provided (including `null`): creates or updates a `ManualLabelCategory` entry mapping `labelNormalized + type` → `categoryId`. This enables future automatic categorization.
 - If `categoryId` is `null`: deletes any existing `ManualLabelCategory` for this label+type pair.
+- `note` and `pinned` can be updated independently without triggering category learning.
 
 **Response `200`:**
 
@@ -487,12 +510,14 @@ Update a transaction's category. Also learns the manual label association for fu
   "bankAccount": {
     "id": "ckvacc001...",
     "name": "Compte Courant BNP"
-  }
+  },
+  "note": "Remboursement attendu",
+  "pinned": true
 }
 ```
 
 **Errors:**
-- `400`: `categoryId` is missing or not a string
+- `400`: Request body is missing or invalid
 - `404`: Transaction not found or not in workspace
 
 ---
@@ -951,11 +976,13 @@ Public endpoint (no authentication) for searching supported EEA/UK banks. Data i
 
 ```json
 {
-  "data": [
+  "banks": [
     {
+      "id": "BNP_PARIBAS_BNPAFRPPXXX",
       "name": "BNP Paribas",
       "bic": "BNPAFRPP",
-      "logo": null
+      "countries": ["FR"],
+      "logo": "https://x-public-data.gocardless.com/Logos/Original/BNP_PARIBAS_BNPAFRPPXXX.png"
     }
   ]
 }
@@ -963,6 +990,7 @@ Public endpoint (no authentication) for searching supported EEA/UK banks. Data i
 
 **Notes:**
 - No authentication required
+- `logo` is derived from the institution ID using the GoCardless logo CDN (`https://x-public-data.gocardless.com/Logos/Original/{id}.png`). Falls back to no image client-side if the URL is unavailable.
 - This endpoint is used by the UI bank selector in the import flow
 - Results are cached for 24 hours server-side
 
@@ -1020,8 +1048,10 @@ ImportBatch (1) ──── (N) Transaction
 | `name` | `string` | Display name |
 | `type` | `AccountType` | `CHECKING`, `SAVINGS`, `CREDIT_CARD`, `INVESTMENT`, `OTHER` |
 | `bankName` | `string?` | Bank name |
+| `bankInstitutionId` | `string?` | GoCardless/Nordigen institution ID, used to resolve bank logo |
 | `accountNumber` | `string?` | Account number (partial or full) |
-| `balance` | `Decimal?` | Current balance |
+| `referenceBalance` | `Decimal?` | Known balance at `referenceBalanceDate` |
+| `referenceBalanceDate` | `DateTime?` | Date at which `referenceBalance` is accurate |
 | `currency` | `string` | ISO 4217 currency code |
 | `isActive` | `boolean` | Whether account is active |
 | `createdAt` | `DateTime` | Creation timestamp |
@@ -1049,6 +1079,8 @@ ImportBatch (1) ──── (N) Transaction
 | `confidence` | `float` | Categorization confidence (0-1) |
 | `hash` | `string` | Deduplication hash (unique per workspace) |
 | `metadata` | `Json?` | Additional data (matched rule, original row) |
+| `note` | `string?` | Free-text annotation (optional) |
+| `pinned` | `boolean` | Whether the transaction is pinned (default: false) |
 | `createdAt` | `DateTime` | Creation timestamp |
 
 **Unique constraint:** `(workspaceId, hash)` — prevents duplicate imports.

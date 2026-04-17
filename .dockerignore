@@ -1,0 +1,61 @@
+# git
+.git
+.gitignore
+
+# dependencies
+node_modules
+
+# Next.js build artifacts
+.next
+out
+build
+
+# environment files — never copy secrets into the image
+.env
+.env.*
+!.env.example
+
+# TypeScript config is needed by Next.js build for path aliases (@/*)
+# NOTE: tsconfig.json and next-env.d.ts are deliberately NOT excluded —
+# they must be present in the Docker build context.
+# tsconfig.build.json is only used by some external tools, not by Next.js.
+
+# development files
+.eslintrc*
+eslint.config.*
+.prettierrc*
+.prettierignore
+*.tsbuildinfo
+
+# testing & debug
+coverage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# database — dev.db and lock file must be excluded, but migrations are needed
+# by `prisma migrate deploy` inside the container
+prisma/dev.db
+prisma/dev.db-journal
+
+# local files that should not be in the image
+*.csv
+*.pem
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE & editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Misc
+.claude/
+.crush/
+.goose/
+.kiro/
+skills-lock.json

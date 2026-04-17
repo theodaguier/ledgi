@@ -2,17 +2,19 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
-import { Button } from "@/components/ui/button";
+import { User } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getDashboardMessages } from "@/lib/dashboard-messages";
+import type { AppLocale } from "@/lib/locale";
+import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { User, ChevronDown } from "lucide-react";
+  Combobox,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
 
 interface Member {
   userId: string;
@@ -22,68 +24,68 @@ interface Member {
 
 interface DashboardUserFilterProps {
   members: Member[];
-  activeUserId?: string;
+  activeUserIds: string[];
+  locale: AppLocale;
 }
 
 export function DashboardUserFilter({
   members,
-  activeUserId,
+  activeUserIds,
+  locale,
 }: DashboardUserFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+  const messages = getDashboardMessages(locale);
 
-  const activeUser = activeUserId
-    ? members.find((m) => m.userId === activeUserId)
-    : null;
+  const label =
+    activeUserIds.length === 0
+      ? messages.filters.allMembers
+      : activeUserIds.length === 1
+        ? (members.find((m) => m.userId === activeUserIds[0])?.name ??
+          members.find((m) => m.userId === activeUserIds[0])?.email ??
+          messages.filters.memberFallback)
+        : messages.filters.memberCount(activeUserIds.length);
 
-  const handleUserChange = (value: string) => {
+  const handleChange = (values: string[]) => {
     startTransition(() => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value === "all") {
-        params.delete("user");
-      } else {
-        params.set("user", value);
-      }
+      params.delete("user");
+      values.forEach((v) => params.append("user", v));
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     });
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant={activeUserId ? "secondary" : "outline"}>
-          <User data-icon="inline-start" />
-          {activeUser ? (
-            <span>{activeUser.name ?? activeUser.email}</span>
-          ) : (
-            <span>Tous les membres</span>
-          )}
-          <ChevronDown data-icon="inline-end" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Membre</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup
-          value={activeUserId ?? "all"}
-          onValueChange={handleUserChange}
-        >
-          <DropdownMenuRadioItem value="all">
-            Tous les membres
-          </DropdownMenuRadioItem>
-          {members.map((member) => (
-            <DropdownMenuRadioItem
-              key={member.userId}
-              value={member.userId}
-            >
-              {member.name ?? member.email}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Combobox multiple value={activeUserIds} onValueChange={handleChange}>
+      <ComboboxTrigger
+        className={cn(
+          buttonVariants({
+            variant: activeUserIds.length > 0 ? "secondary" : "outline",
+          }),
+        )}
+      >
+        <User className="size-4" />
+        {label}
+      </ComboboxTrigger>
+      <ComboboxPopup align="end" className="font-heading w-48">
+        <ComboboxList>
+          {members.map((member) => {
+            const display = member.name ?? member.email;
+            const initials = display.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+            return (
+              <ComboboxItem key={member.userId} value={member.userId}>
+                <Avatar className="size-5">
+                  <AvatarFallback className="text-[9px]">{initials}</AvatarFallback>
+                </Avatar>
+                {display}
+              </ComboboxItem>
+            );
+          })}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }

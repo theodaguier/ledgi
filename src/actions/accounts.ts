@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { accountFormSchema } from "@/lib/validation/schemas";
 
 type AccountType = "CHECKING" | "SAVINGS" | "CREDIT_CARD" | "INVESTMENT" | "OTHER";
 
@@ -10,12 +11,21 @@ export async function createAccount(data: {
   name: string;
   type: string;
   bankName: string | null;
+  bankInstitutionId: string | null;
+  bankBrandDomain: string | null;
   accountNumber: string | null;
-  balance: number | null;
+  referenceBalance: number | null;
+  referenceBalanceDate: Date | null;
   currency: string;
   ownerUserId?: string;
 }) {
+  const parsed = accountFormSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
   const ctx = await getWorkspaceContext();
+
+  const hasReferenceBalance = data.referenceBalance !== null && data.referenceBalance !== undefined;
 
   await prisma.bankAccount.create({
     data: {
@@ -24,8 +34,11 @@ export async function createAccount(data: {
       name: data.name,
       type: data.type as AccountType,
       bankName: data.bankName,
+      bankInstitutionId: data.bankInstitutionId,
+      bankBrandDomain: data.bankBrandDomain,
       accountNumber: data.accountNumber,
-      balance: data.balance ?? 0,
+      referenceBalance: data.referenceBalance ?? 0,
+      referenceBalanceDate: hasReferenceBalance ? (data.referenceBalanceDate ?? new Date()) : null,
       currency: data.currency,
     },
   });
@@ -39,11 +52,19 @@ export async function updateAccount(
     name: string;
     type: string;
     bankName: string | null;
+    bankInstitutionId: string | null;
+    bankBrandDomain: string | null;
     accountNumber: string | null;
-    balance: number | null;
+    referenceBalance: number | null;
+    referenceBalanceDate: Date | null;
     currency: string;
   }
 ) {
+  const parsed = accountFormSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
+
   const ctx = await getWorkspaceContext();
 
   const account = await prisma.bankAccount.findFirst({
@@ -58,8 +79,11 @@ export async function updateAccount(
       name: data.name,
       type: data.type as AccountType,
       bankName: data.bankName,
+      bankInstitutionId: data.bankInstitutionId,
+      bankBrandDomain: data.bankBrandDomain,
       accountNumber: data.accountNumber,
-      balance: data.balance ?? 0,
+      referenceBalance: data.referenceBalance ?? 0,
+      referenceBalanceDate: data.referenceBalanceDate,
       currency: data.currency,
     },
   });
@@ -76,7 +100,6 @@ export async function deleteAccount(accountId: string) {
   });
 
   if (!account) throw new Error("Compte non trouvé");
-  if (account._count.transactions > 0) throw new Error("Impossible de supprimer un compte avec des transactions");
 
   await prisma.bankAccount.delete({
     where: { id: accountId },

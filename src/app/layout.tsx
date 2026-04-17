@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
+import { auth, prisma } from "@/lib/auth";
+import { getHtmlLang, normalizeAppLocale } from "@/lib/locale";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { siteConfig } from "@/config";
@@ -23,14 +26,33 @@ export const metadata: Metadata = {
   description: siteConfig.description,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  let locale = normalizeAppLocale(siteConfig.locale);
+
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+
+    if (session?.user) {
+      const userSettings = await prisma.userSettings.findUnique({
+        where: { userId: session.user.id },
+        select: { locale: true },
+      });
+
+      locale = normalizeAppLocale(userSettings?.locale ?? siteConfig.locale);
+    }
+  } catch {
+    locale = normalizeAppLocale(siteConfig.locale);
+  }
+
   return (
     <html
-      lang="fr"
+      lang={getHtmlLang(locale)}
       className={`${geistHeading.variable} ${geistMono.variable} h-full`}
       suppressHydrationWarning
     >

@@ -115,7 +115,7 @@ async function main() {
         type: "CHECKING",
         bankName: "Generic",
         currency: "EUR",
-        balance: 0,
+        referenceBalance: 0,
       },
     });
     console.log("Default bank account created.");

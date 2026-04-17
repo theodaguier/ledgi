@@ -151,21 +151,24 @@ model VerificationToken {
 }
 
 model BankAccount {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  ownerUserId   String?
-  name          String
-  type          AccountType @default(CHECKING)
-  bankName      String?
-  accountNumber String?
-  balance       Decimal? @db.Decimal(12, 2)
-  currency      String   @default("EUR")
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  transactions  Transaction[]
-  importBatches ImportBatch[]
+  id                    String   @id @default(cuid())
+  workspaceId           String
+  ownerUserId           String?
+  name                  String
+  type                  AccountType @default(CHECKING)
+  bankName              String?
+  bankInstitutionId     String?
+  bankBrandDomain       String?
+  accountNumber         String?
+  referenceBalance      Decimal?  @db.Decimal(12, 2)
+  referenceBalanceDate  DateTime?
+  currency              String   @default("EUR")
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  workspace             Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transactions          Transaction[]
+  importBatches         ImportBatch[]
 }
 
 enum AccountType {
@@ -224,6 +227,8 @@ model Transaction {
   categoryManual  String?
   confidence      Float    @default(0)
   hash            String
+  note            String?
+  pinned          Boolean  @default(false)
   metadata        Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -237,6 +242,8 @@ model Transaction {
   @@index([categoryId])
   @@index([workspaceId, hash])
   @@index([ownerUserId])
+  @@index([workspaceId, merchant, type, dateOperation])
+  @@index([workspaceId, labelNormalized, type, dateOperation])
   @@unique([workspaceId, hash])
 }
 

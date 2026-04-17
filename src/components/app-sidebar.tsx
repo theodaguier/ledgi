@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
@@ -18,7 +18,10 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
+import { fetchBankLogos } from "@/lib/bank-logos-cache";
+import { getAppMessages } from "@/lib/app-messages";
 import { siteConfig } from "@/config";
+import type { AppLocale } from "@/lib/locale";
 import {
   Avatar,
   AvatarFallback,
@@ -60,6 +63,7 @@ interface Account {
   id: string;
   name: string;
   bankName: string | null;
+  bankInstitutionId: string | null;
   _count: { transactions: number };
 }
 
@@ -95,9 +99,11 @@ interface Member {
 interface AppSidebarProps {
   accounts: Account[];
   categories: Category[];
+  locale: AppLocale;
   user?: User;
   workspace?: WorkspaceInfo;
   members?: Member[];
+  initialBrandLogos?: Record<string, string>;
 }
 
 function getInitials(name: string): string {
@@ -109,9 +115,10 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-function NavContent({ accounts, categories, user, workspace, members }: AppSidebarProps) {
+function NavContent({ accounts, categories, locale, user, initialBrandLogos }: AppSidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const messages = getAppMessages(locale);
   const activeCategoryId = searchParams.get("category");
   const activeAccountId = searchParams.get("account");
 
@@ -121,6 +128,18 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
   const [transactionsOpen, setTransactionsOpen] = useState(() =>
     pathname === "/transactions" || pathname.startsWith("/transactions/")
   );
+
+  const [brandLogos, setBrandLogos] = useState<Record<string, string>>(initialBrandLogos ?? {});
+
+  useEffect(() => {
+    const institutionIds = accounts
+      .map((acc) => acc.bankInstitutionId)
+      .filter((id): id is string => Boolean(id));
+    if (institutionIds.length === 0) return;
+    fetchBankLogos(institutionIds)
+      .then(setBrandLogos)
+      .catch(() => {});
+  }, [accounts]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -158,17 +177,17 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
       <SidebarContent className="px-2 py-3">
         <SidebarGroup>
           <SidebarGroupLabel className="text-[0.65rem] font-medium text-sidebar-foreground/40 uppercase tracking-widest px-2 mb-1">
-            Navigation
+            {messages.navigation.section}
           </SidebarGroupLabel>
           <SidebarGroupContent className="font-heading">
             <SidebarMenu>
 
               {/* Dashboard */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/dashboard")} tooltip="Dashboard">
+                <SidebarMenuButton asChild isActive={isActive("/dashboard")} tooltip={messages.navigation.dashboard}>
                   <Link href="/dashboard">
                     <LayoutDashboard className="size-[15px] shrink-0" data-icon="inline-start" />
-                    <span>Dashboard</span>
+                    <span>{messages.navigation.dashboard}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -177,9 +196,9 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
               <Collapsible open={transactionsOpen} onOpenChange={setTransactionsOpen} asChild>
                 <SidebarMenuItem>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton isActive={isTransactionsActive} tooltip="Transactions">
+                    <SidebarMenuButton isActive={isTransactionsActive} tooltip={messages.navigation.transactions}>
                       <Receipt className="size-[15px] shrink-0" data-icon="inline-start" />
-                      <span>Transactions</span>
+                      <span>{messages.navigation.transactions}</span>
                       <ChevronRight
                         className="ml-auto size-3.5 shrink-0 transition-transform duration-200"
                         style={{ transform: transactionsOpen ? "rotate(90deg)" : "rotate(0deg)" }}
@@ -200,7 +219,7 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                             <span className="flex size-4 shrink-0 items-center justify-center rounded border border-sidebar-border/60 bg-sidebar-accent text-sidebar-foreground/50">
                               <span className="text-[9px] leading-none">⋯</span>
                             </span>
-                            <span>Toutes</span>
+                            <span>{messages.navigation.allTransactions}</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
@@ -211,7 +230,7 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                           <li className="px-2 pt-2 pb-0.5">
                             <span className="flex items-center gap-1.5 text-[0.6rem] font-medium uppercase tracking-widest text-sidebar-foreground/30">
                               <ArrowDownLeft className="size-2.5" />
-                              Dépenses
+                              {messages.navigation.expenseCategories}
                             </span>
                           </li>
                           {expenseCategories.map((cat) => (
@@ -221,12 +240,12 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                                 size="sm"
                                 isActive={activeCategoryId === cat.id}
                               >
-                                <Link href={`/transactions?category=${cat.id}`} className="flex items-center gap-2">
+                                <Link href={`/transactions?category=${cat.id}`} className="flex items-center gap-2 min-w-0">
                                   <span
                                     className="size-2 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
                                     style={{ backgroundColor: cat.color ?? "oklch(0.708 0 0)" }}
                                   />
-                                  <span className="truncate">{cat.name}</span>
+                                  <span className="truncate min-w-0 pr-6">{cat.name}</span>
                                 </Link>
                               </SidebarMenuSubButton>
                               {cat._count.transactions > 0 && (
@@ -245,7 +264,7 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                           <li className="px-2 pt-2 pb-0.5">
                             <span className="flex items-center gap-1.5 text-[0.6rem] font-medium uppercase tracking-widest text-sidebar-foreground/30">
                               <ArrowUpRight className="size-2.5" />
-                              Revenus
+                              {messages.navigation.incomeCategories}
                             </span>
                           </li>
                           {incomeCategories.map((cat) => (
@@ -255,12 +274,12 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                                 size="sm"
                                 isActive={activeCategoryId === cat.id}
                               >
-                                <Link href={`/transactions?category=${cat.id}`} className="flex items-center gap-2">
+                                <Link href={`/transactions?category=${cat.id}`} className="flex items-center gap-2 min-w-0">
                                   <span
                                     className="size-2 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
                                     style={{ backgroundColor: cat.color ?? "oklch(0.708 0 0)" }}
                                   />
-                                  <span className="truncate">{cat.name}</span>
+                                  <span className="truncate min-w-0 pr-6">{cat.name}</span>
                                 </Link>
                               </SidebarMenuSubButton>
                               {cat._count.transactions > 0 && (
@@ -280,30 +299,30 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
 
               {/* Imports */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/imports")} tooltip="Imports">
+                <SidebarMenuButton asChild isActive={isActive("/imports")} tooltip={messages.navigation.imports}>
                   <Link href="/imports">
                     <Upload className="size-[15px] shrink-0" data-icon="inline-start" />
-                    <span>Imports</span>
+                    <span>{messages.navigation.imports}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
               {/* Catégories */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/categories")} tooltip="Catégories">
+                <SidebarMenuButton asChild isActive={isActive("/categories")} tooltip={messages.navigation.categories}>
                   <Link href="/categories">
                     <Tags className="size-[15px] shrink-0" data-icon="inline-start" />
-                    <span>Catégories</span>
+                    <span>{messages.navigation.categories}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
               {/* Règles */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/rules")} tooltip="Règles">
+                <SidebarMenuButton asChild isActive={isActive("/rules")} tooltip={messages.navigation.rules}>
                   <Link href="/rules">
                     <ListChecks className="size-[15px] shrink-0" data-icon="inline-start" />
-                    <span>Règles</span>
+                    <span>{messages.navigation.rules}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -312,9 +331,9 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
               <Collapsible open={accountsOpen} onOpenChange={setAccountsOpen} asChild>
                 <SidebarMenuItem>
                   <CollapsibleTrigger asChild>
-                    <SidebarMenuButton isActive={isAccountsActive} tooltip="Comptes">
+                    <SidebarMenuButton isActive={isAccountsActive} tooltip={messages.navigation.accounts}>
                       <Landmark className="size-[15px] shrink-0" data-icon="inline-start" />
-                      <span>Comptes</span>
+                      <span>{messages.navigation.accounts}</span>
                       <ChevronRight
                         className="ml-auto size-3.5 shrink-0 transition-transform duration-200"
                         style={{ transform: accountsOpen ? "rotate(90deg)" : "rotate(0deg)" }}
@@ -335,7 +354,7 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                             <span className="flex size-4 shrink-0 items-center justify-center rounded border border-sidebar-border/60 bg-sidebar-accent text-sidebar-foreground/50">
                               <span className="text-[9px] leading-none">⋯</span>
                             </span>
-                            <span>Tous</span>
+                            <span>{messages.navigation.allAccounts}</span>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
@@ -347,11 +366,22 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                             size="sm"
                             isActive={activeAccountId === account.id}
                           >
-                            <Link href={`/transactions?account=${account.id}`} className="flex items-center gap-2">
-                              <span className="flex size-4 shrink-0 items-center justify-center rounded bg-sidebar-primary/10 text-sidebar-primary text-[9px] font-semibold leading-none">
-                                {getInitials(account.name)}
-                              </span>
-                              <span className="truncate">{account.name}</span>
+                            <Link href={`/transactions?account=${account.id}`} className="flex items-center gap-2 min-w-0">
+                              {account.bankInstitutionId && brandLogos[account.bankInstitutionId] ? (
+                                <img
+                                  src={brandLogos[account.bankInstitutionId]}
+                                  alt={account.name}
+                                  className="size-4 shrink-0 rounded object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              ) : (
+                                <span className="flex size-4 shrink-0 items-center justify-center rounded bg-sidebar-primary/10 text-sidebar-primary text-[9px] font-semibold leading-none">
+                                  {getInitials(account.name)}
+                                </span>
+                              )}
+                              <span className="truncate min-w-0 pr-6">{account.name}</span>
                             </Link>
                           </SidebarMenuSubButton>
                           {account._count.transactions > 0 && (
@@ -369,10 +399,10 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
 
               {/* Paramètres */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={isActive("/settings")} tooltip="Paramètres">
+                <SidebarMenuButton asChild isActive={isActive("/settings")} tooltip={messages.navigation.settings}>
                   <Link href="/settings">
                     <Settings className="size-[15px] shrink-0" data-icon="inline-start" />
-                    <span>Paramètres</span>
+                    <span>{messages.navigation.settings}</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -393,20 +423,20 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                     <AvatarFallback>{getInitials(user?.name ?? "U")}</AvatarFallback>
                   </Avatar>
                   <span className="flex-1 text-xs font-medium truncate text-left">
-                    {user?.name ?? "Utilisateur"}
+                    {user?.name ?? messages.navigation.userFallback}
                   </span>
                   <ChevronsUpDown className="size-3.5 shrink-0 text-sidebar-foreground/40" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {user?.name ?? "Utilisateur"}
+                  {user?.name ?? messages.navigation.userFallback}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
                     <Settings className="size-3.5 mr-2" />
-                    Paramètres
+                    {messages.navigation.settings}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -415,7 +445,7 @@ function NavContent({ accounts, categories, user, workspace, members }: AppSideb
                   onClick={handleSignOut}
                 >
                   <LogOut className="size-3.5 mr-2" />
-                  Déconnexion
+                  {messages.navigation.signOut}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

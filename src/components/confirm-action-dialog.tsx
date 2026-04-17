@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface ConfirmActionDialogProps {
   open: boolean;
@@ -56,7 +56,7 @@ export function ConfirmActionDialog({
           >
             {pending ? (
               <>
-                <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
+                <Spinner data-icon="inline-start" />
                 Traitement...
               </>
             ) : (

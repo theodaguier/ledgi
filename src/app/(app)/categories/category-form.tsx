@@ -3,9 +3,23 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldError } from "@/components/ui/field";
 import { SheetFooter } from "@/components/ui/sheet";
-import { Loader2 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { ChevronsUpDown, Check } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import * as LucideIcons from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -164,6 +178,7 @@ interface CategoryFormProps {
   onSubmit: () => void;
   onCancel: () => void;
   isEdit?: boolean;
+  errors?: Record<string, string[]>;
 }
 
 export function CategoryForm({
@@ -173,19 +188,21 @@ export function CategoryForm({
   onSubmit,
   onCancel,
   isEdit,
+  errors,
 }: CategoryFormProps) {
   return (
     <>
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="category-name">Nom</FieldLabel>
+          <Field data-invalid={!!errors?.name}>
+            <FieldLabel htmlFor="category-name" required>Nom</FieldLabel>
             <Input
               id="category-name"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Nom de la catégorie"
             />
+            {errors?.name && <FieldError>{errors.name[0]}</FieldError>}
           </Field>
           <Field>
             <FieldLabel htmlFor="category-description">Description</FieldLabel>
@@ -200,90 +217,72 @@ export function CategoryForm({
           {/* Icon picker */}
           <Field>
             <FieldLabel>Icône</FieldLabel>
-            <div className="mt-1 grid grid-cols-8 gap-1 max-h-48 overflow-y-auto rounded-lg border p-2">
-              {ICONS.map((icon) => (
-                <button
-                  key={icon.name}
-                  type="button"
-                  title={icon.label}
-                  onClick={() => setForm({ ...form, icon: icon.name })}
-                  className={cn(
-                    "flex items-center justify-center rounded-md p-1.5 transition-colors hover:bg-muted",
-                    form.icon === icon.name
-                      ? "ring-2 ring-offset-1 ring-current"
-                      : "opacity-60 hover:opacity-100"
-                  )}
-                  style={
-                    form.icon === icon.name && form.color
-                      ? { color: form.color }
-                      : form.icon === icon.name
-                      ? { color: "var(--foreground)" }
-                      : undefined
-                  }
-                >
-                  <CategoryIcon name={icon.name} size={16} />
-                </button>
-              ))}
-            </div>
-            {form.icon && (
-              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                <span
-                  style={form.color ? { color: form.color } : undefined}
-                >
-                  <CategoryIcon name={form.icon} size={14} />
-                </span>
-                <span>
-                  {ICONS.find((i) => i.name === form.icon)?.label ?? form.icon}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, icon: "" })}
-                  className="ml-auto text-muted-foreground hover:text-foreground"
-                >
-                  Retirer
-                </button>
-              </div>
-            )}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-between font-normal">
+                  <span className="flex items-center gap-2">
+                    {form.icon ? (
+                      <>
+                        <span style={form.color ? { color: form.color } : undefined}>
+                          <CategoryIcon name={form.icon} size={16} />
+                        </span>
+                        {ICONS.find((i) => i.name === form.icon)?.label ?? form.icon}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Choisir une icône</span>
+                    )}
+                  </span>
+                  <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" align="start" onWheel={(e) => e.stopPropagation()}>
+                <Command>
+                  <CommandInput placeholder="Rechercher..." />
+                  <CommandList className="max-h-[240px] overflow-y-auto [&::-webkit-scrollbar]:block">
+                    <CommandEmpty>Aucune icône trouvée.</CommandEmpty>
+                    <CommandGroup>
+                      {ICONS.map((icon) => (
+                        <CommandItem
+                          key={icon.name}
+                          value={icon.label}
+                          onSelect={() => setForm({ ...form, icon: form.icon === icon.name ? "" : icon.name })}
+                        >
+                          <CategoryIcon name={icon.name} size={16} />
+                          {icon.label}
+                          <Check
+                            className={cn("ml-auto size-4", form.icon === icon.name ? "opacity-100" : "opacity-0")}
+                          />
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </Field>
 
           {/* Color picker */}
           <Field>
-            <FieldLabel>Couleur de surbrillance</FieldLabel>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <FieldLabel>Couleur</FieldLabel>
+            <div className="flex flex-wrap gap-2">
               {CATEGORY_COLORS.map((c) => (
-                <button
+                <Button
                   key={c.value}
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   title={c.label}
                   onClick={() =>
                     setForm({ ...form, color: form.color === c.value ? "" : c.value })
                   }
                   className={cn(
-                    "size-7 rounded-full transition-transform hover:scale-110",
-                    form.color === c.value
-                      ? "ring-2 ring-offset-2 scale-110"
-                      : ""
+                    "size-7 rounded-full p-0 hover:scale-110 transition-transform",
+                    form.color === c.value && "ring-2 ring-offset-2 ring-primary scale-110"
                   )}
                   style={{ backgroundColor: c.value }}
                 />
               ))}
             </div>
-            {form.color && (
-              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                <span
-                  className="inline-block size-3 rounded-full"
-                  style={{ backgroundColor: form.color }}
-                />
-                <span>{CATEGORY_COLORS.find((c) => c.value === form.color)?.label}</span>
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, color: "" })}
-                  className="ml-auto hover:text-foreground"
-                >
-                  Retirer
-                </button>
-              </div>
-            )}
           </Field>
 
           <Field orientation="horizontal">
@@ -305,7 +304,7 @@ export function CategoryForm({
         <Button onClick={onSubmit} disabled={isPending || !form.name.trim()}>
           {isPending ? (
             <>
-              <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />
+              <Spinner data-icon="inline-start" />
               Enregistrement...
             </>
           ) : isEdit ? (

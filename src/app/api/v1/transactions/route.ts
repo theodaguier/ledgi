@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
   const rawQ = getSearchParam(searchParams.get("q") ?? undefined);
   const rawLimit = searchParams.get("limit");
   const rawOffset = searchParams.get("offset");
+  const rawPinned = getSearchParam(searchParams.get("pinned") ?? undefined);
 
   const preset = isTransactionDatePreset(rawPreset) ? rawPreset : undefined;
   const sort: TransactionSort = isTransactionSort(rawSort) ? rawSort : "desc";
@@ -92,6 +93,11 @@ export async function GET(request: NextRequest) {
           },
         }
       : {}),
+    ...(rawPinned === "1"
+      ? { pinned: true }
+      : rawPinned === "0"
+        ? { pinned: false }
+        : {}),
   };
 
   const [transactions, total] = await Promise.all([
@@ -124,6 +130,8 @@ export async function GET(request: NextRequest) {
     isAutomatic: tx.isAutomatic,
     ownerUserId: tx.ownerUserId,
     createdAt: tx.createdAt.toISOString(),
+    note: tx.note,
+    pinned: tx.pinned,
   }));
 
   return Response.json({

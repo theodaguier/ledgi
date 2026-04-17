@@ -25,7 +25,8 @@ export async function categorizeTransaction(
     isActive: boolean;
   }>,
   existingCategoryId?: string | null,
-  manualDecisions?: ManualDecisionMap
+  manualDecisions?: ManualDecisionMap,
+  merchant?: string | null
 ): Promise<CategorizationResult> {
   if (existingCategoryId !== undefined && existingCategoryId !== null) {
     return { categoryId: existingCategoryId, confidence: 1.0, matchedRule: null };
@@ -42,6 +43,15 @@ export async function categorizeTransaction(
     }
     if (manualDecisions.has(debitKey) || manualDecisions.has(creditKey)) {
       return { categoryId: null, confidence: 0, matchedRule: null };
+    }
+
+    if (merchant) {
+      const merchantDebitKey = buildManualDecisionKey(merchant, "DEBIT");
+      const merchantCreditKey = buildManualDecisionKey(merchant, "CREDIT");
+      const merchantCategoryId = manualDecisions.get(merchantDebitKey) ?? manualDecisions.get(merchantCreditKey);
+      if (merchantCategoryId !== undefined) {
+        return { categoryId: merchantCategoryId, confidence: 0.90, matchedRule: null };
+      }
     }
   }
 
@@ -215,6 +225,7 @@ export function normalizeLabel(label: string): string {
 
 export function extractMerchant(label: string): string | null {
   const cleaned = label
+    .split("|")[0]
     .replace(/cb\s*\*?\d{4}/gi, "")
     .replace(/carte\s*\d{4}/gi, "")
     .replace(/\d{2}\/\d{2}/g, "")

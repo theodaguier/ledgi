@@ -1,5 +1,15 @@
 
 
+export function decodeCSV(buffer: ArrayBuffer): string {
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  if (!utf8.includes("\uFFFD")) return utf8;
+  try {
+    return new TextDecoder("windows-1252").decode(buffer);
+  } catch {
+    return utf8;
+  }
+}
+
 export interface ParsedTransaction {
   dateOperation: Date;
   dateValue?: Date;
@@ -134,6 +144,85 @@ export function detectFormat(headers: string[]): FormatProfile | null {
   return null;
 }
 
+const DATE_HEADER_KEYWORDS = ["date", "dateoperation", "dateope", "dateval", "dateop"];
+const LABEL_HEADER_KEYWORDS = ["libelle", "libellé", "description", "nature", "reference", "merchant", "label", "nature"];
+const AMOUNT_HEADER_KEYWORDS = ["montant", "amount", "somme", "balance", "credit", "débit", "debit"];
+
+function looksLikeHeaderRow(columns: string[]): boolean {
+  if (columns.length < 3) return false;
+  const normalized = columns.map(normalizeHeader);
+
+  let dateScore = 0;
+  let labelScore = 0;
+  let amountScore = 0;
+
+  for (const h of normalized) {
+    if (DATE_HEADER_KEYWORDS.some((k) => h.includes(k))) dateScore++;
+    if (LABEL_HEADER_KEYWORDS.some((k) => h.includes(k))) labelScore++;
+    if (AMOUNT_HEADER_KEYWORDS.some((k) => h.includes(k))) amountScore++;
+  }
+
+  if (dateScore >= 1 && labelScore >= 1 && amountScore >= 1) return true;
+  if (dateScore >= 1 && labelScore >= 1) return true;
+  if (detectFormat(columns)) return true;
+
+  return false;
+}
+
+export function findColumn(headers: string[], candidates: string[]): string | null {
+  const normalized = headers.map(normalizeHeader);
+  const normCandidates = candidates.map((c) => normalizeHeader(c));
+
+  for (let i = 0; i < normCandidates.length; i++) {
+    const idx = normalized.indexOf(normCandidates[i]);
+    if (idx !== -1) return headers[idx];
+  }
+
+  for (let i = 0; i < normCandidates.length; i++) {
+    for (let j = 0; j < normalized.length; j++) {
+      if (normalized[j].startsWith(normCandidates[i]) || normCandidates[i].startsWith(normalized[j])) {
+        return headers[j];
+      }
+    }
+  }
+
+  return null;
+}
+
+export function findHeaderRow(content: string, separator: string): number {
+  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  for (let i = 0; i < Math.min(lines.length, 20); i++) {
+    const columns = parseCSVLine(lines[i], separator);
+    if (looksLikeHeaderRow(columns)) return i;
+  }
+  return 0;
+}
+
+export function detectSeparator(content: string): string {
+  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) return ",";
+
+  const firstMeaningfulLines = lines.slice(0, Math.min(lines.length, 5));
+
+  const separators = [";", "\t", ",", "|"];
+  let bestSeparator = ";";
+  let maxCount = 0;
+
+  for (const sep of separators) {
+    const escaped = sep === "|" ? "\\|" : sep;
+    const totalCount = firstMeaningfulLines.reduce(
+      (sum, l) => sum + (l.match(new RegExp(escaped, "g")) || []).length,
+      0,
+    );
+    if (totalCount > maxCount) {
+      maxCount = totalCount;
+      bestSeparator = sep;
+    }
+  }
+
+  return bestSeparator;
+}
+
 export function parseAmount(value: string, profile: FormatProfile): number {
   if (!value || value.trim() === "") return 0;
 
@@ -141,7 +230,7 @@ export function parseAmount(value: string, profile: FormatProfile): number {
 
   if (profile.decimalSeparator === ",") {
     if (profile.thousandsSeparator === " ") {
-      cleaned = cleaned.replace(/ /g, "").replace(",", ".");
+      cleaned = cleaned.replace(/[\s\u00A0]/g, "").replace(",", ".");
     } else {
       cleaned = cleaned.replace(",", ".");
     }
@@ -231,31 +320,66 @@ export function parseCSVLine(line: string, separator = ","): string[] {
 }
 
 export function parseCSV(content: string, separator = ","): { headers: string[]; rows: string[][] } {
-  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
-  if (lines.length === 0) return { headers: [], rows: [] };
+  const headerRowIndex = findHeaderRow(content, separator);
+  const allFields: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = "";
+  let inQuotes = false;
+  let i = 0;
 
-  const headers = parseCSVLine(lines[0], separator);
-  const rows = lines.slice(1).map((line) => parseCSVLine(line, separator));
+  while (i < content.length) {
+    const char = content[i];
+    const nextChar = content[i + 1];
 
-  return { headers, rows };
-}
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentField += '"';
+        i += 2;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      i++;
+      continue;
+    }
 
-export function detectSeparator(content: string): string {
-  const firstLine = content.split(/\r?\n/)[0] ?? "";
+    if (!inQuotes) {
+      if (char === separator) {
+        currentRow.push(currentField.trim());
+        currentField = "";
+        i++;
+        continue;
+      }
 
-  const separators = [",", ";", "\t", "|"];
-  let bestSeparator = ",";
-  let maxCount = 0;
+      if ((char === '\n') || (char === '\r' && nextChar === '\n')) {
+        currentRow.push(currentField.trim());
+        if (currentRow.length > 0 && currentRow.some(f => f.trim() !== "")) {
+          allFields.push(currentRow);
+        }
+        currentRow = [];
+        currentField = "";
+        if (char === '\r') i++;
+        i++;
+        continue;
+      }
+    }
 
-  for (const sep of separators) {
-    const count = (firstLine.match(new RegExp(sep === "|" ? "\\|" : sep, "g")) || []).length;
-    if (count > maxCount) {
-      maxCount = count;
-      bestSeparator = sep;
+    currentField += char;
+    i++;
+  }
+
+  if (currentField.trim() !== "" || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.some(f => f.trim() !== "")) {
+      allFields.push(currentRow);
     }
   }
 
-  return bestSeparator;
+  if (allFields.length === 0) return { headers: [], rows: [] };
+
+  const headers = allFields[headerRowIndex] ?? allFields[0];
+  const rows = allFields.slice(headerRowIndex + 1);
+
+  return { headers, rows };
 }
 
 export function generateTransactionHash(

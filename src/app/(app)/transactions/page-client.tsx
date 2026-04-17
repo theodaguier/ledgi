@@ -1,9 +1,9 @@
 "use client";
 
 import type { DateRange } from "react-day-picker";
-import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { updateTransactionCategory } from "@/actions/transactions";
+import { updateTransactionCategory, getTransactionDetails, updateTransactionMetadata, type TransactionDetails } from "@/actions/transactions";
 import { getTransactionAmountDisplay } from "@/lib/transaction-amount";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Popover,
   PopoverContent,
@@ -29,6 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -36,6 +40,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -48,18 +53,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  ArrowDown,
   ArrowDownUp,
   ArrowLeftRight,
+  ArrowUp,
+  ArrowUpDown,
+  Banknote,
   CalendarDays,
   ChevronDown,
   Layers,
   Loader2,
+  Pin,
+  PinOff,
   Search,
   Tag,
   TrendingDown,
   TrendingUp,
   User,
   X,
+  AlertCircle,
 } from "lucide-react";
 import { CategoryIcon } from "@/lib/category-icon";
 import { toast } from "sonner";
@@ -71,6 +83,15 @@ import {
   type TransactionDatePreset,
   type TransactionSort,
 } from "./filter-utils";
+import {
+  Combobox,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSeparator,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
+import { buttonVariants } from "@/components/ui/button";
 
 interface OwnerUser {
   id: string;
@@ -92,6 +113,8 @@ interface Transaction {
   category: { id: string; name: string; slug: string; color: string | null; icon: string | null } | null;
   bankAccount: { id: string; name: string };
   ownerUser: OwnerUser | null;
+  note: string | null;
+  pinned: boolean;
 }
 
 interface Category {
@@ -120,13 +143,14 @@ export default function TransactionsTable({
   categories: Category[];
   searchParams: {
     q?: string;
-    category?: string;
+    categories?: string[];
     preset?: TransactionDatePreset;
     from?: string;
     to?: string;
     sort: TransactionSort;
     account?: string;
-    user?: string;
+    users?: string[];
+    pinned?: boolean;
   };
   members?: Member[];
 }) {
@@ -134,13 +158,19 @@ export default function TransactionsTable({
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [, startFilterTransition] = useTransition();
-  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editingTxId, setEditingTxId] = useState<string | null>(null);
+  const editingTx = editingTxId ? (transactions.find((t) => t.id === editingTxId) ?? null) : null;
+  const [txDetails, setTxDetails] = useState<TransactionDetails | null>(null);
+  const [txDetailsLoading, setTxDetailsLoading] = useState(false);
+  const [txDetailsError, setTxDetailsError] = useState<string | null>(null);
   const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false);
   const [pendingRange, setPendingRange] = useState<DateRange | undefined>(undefined);
   const searchTimeoutRef = useRef<number | null>(null);
-  const [searchQuery, setSearchQuery] = useOptimistic(searchParams.q ?? "");
-  const [filterCategory, setFilterCategory] = useOptimistic(
-    searchParams.category ?? "all"
+  const typingRef = useRef(false);
+  const [searchDraft, setSearchDraft] = useState<string | null>(null);
+  const searchQuery = searchDraft ?? searchParams.q ?? "";
+  const [filterCategories, setFilterCategories] = useOptimistic<string[]>(
+    searchParams.categories ?? []
   );
   const [datePreset, setDatePreset] = useOptimistic<
     TransactionDatePreset | "all" | "custom"
@@ -158,9 +188,47 @@ export default function TransactionsTable({
     from: searchParams.from,
     to: searchParams.to,
   });
-  const [filterUser, setFilterUser] = useOptimistic(
-    searchParams.user ?? "all"
+  const [filterUsers, setFilterUsers] = useOptimistic<string[]>(
+    searchParams.users ?? []
   );
+  const [filterPinned, setFilterPinned] = useOptimistic<boolean>(
+    searchParams.pinned ?? false
+  );
+
+  useEffect(() => {
+    if (!editingTxId) {
+      startTransition(() => {
+        setTxDetails(null);
+        setTxDetailsError(null);
+      });
+      return;
+    }
+    let cancelled = false;
+    startTransition(() => {
+      setTxDetailsLoading(true);
+      setTxDetailsError(null);
+    });
+    getTransactionDetails(editingTxId)
+      .then((details) => {
+        if (!cancelled) {
+          startTransition(() => {
+            setTxDetails(details);
+            setTxDetailsLoading(false);
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          startTransition(() => {
+            setTxDetailsError("Impossible de charger les détails");
+            setTxDetailsLoading(false);
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingTxId]);
 
   useEffect(() => {
     return () => {
@@ -170,7 +238,7 @@ export default function TransactionsTable({
     };
   }, []);
 
-  const replaceSearchParams = (update: (params: URLSearchParams) => void) => {
+  const replaceSearchParams = useCallback((update: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(window.location.search);
     update(params);
 
@@ -181,7 +249,7 @@ export default function TransactionsTable({
     if (nextUrl !== currentUrl) {
       router.replace(nextUrl);
     }
-  };
+  }, [pathname, router]);
 
   const selectedRange: DateRange | undefined =
     customRange.from || customRange.to
@@ -221,52 +289,54 @@ export default function TransactionsTable({
       ? customRangeLabel
       : undefined;
 
-  const activeCategoryName =
-    filterCategory === "all"
-      ? null
-      : filterCategory === "uncategorized"
-      ? "Non catégorisé"
-      : (categories.find((c) => c.id === filterCategory)?.name ?? null);
+  const categoryFilterLabel =
+    filterCategories.length === 0
+      ? "Catégorie"
+      : filterCategories.length === 1
+        ? filterCategories[0] === "uncategorized"
+          ? "Non catégorisé"
+          : (categories.find((c) => c.id === filterCategories[0])?.name ?? "Catégorie")
+        : `Catégorie · ${filterCategories.length}`;
 
-  const activeUserName =
-    filterUser === "all"
-      ? null
-      : members?.find((m) => m.userId === filterUser)?.user.name ?? null;
+  const userFilterLabel =
+    filterUsers.length === 0
+      ? "Membre"
+      : filterUsers.length === 1
+        ? (members?.find((m) => m.userId === filterUsers[0])?.user.name ?? "Membre")
+        : `Membre · ${filterUsers.length}`;
 
   const hasActiveFilters =
-    filterCategory !== "all" || datePreset !== "all" || !!customRange.from || filterUser !== "all";
+    filterCategories.length > 0 || datePreset !== "all" || !!customRange.from || filterUsers.length > 0 || filterPinned;
 
   const handleSearchChange = (value: string) => {
-    startFilterTransition(() => setSearchQuery(value));
+    typingRef.current = true;
+    setSearchDraft(value);
 
     if (searchTimeoutRef.current) {
       window.clearTimeout(searchTimeoutRef.current);
     }
 
     searchTimeoutRef.current = window.setTimeout(() => {
-      startFilterTransition(() => {
-        replaceSearchParams((params) => {
-          const trimmedQuery = value.trim();
+      replaceSearchParams((params) => {
+        const trimmedQuery = value.trim();
 
-          if (trimmedQuery) {
-            params.set("q", trimmedQuery);
-          } else {
-            params.delete("q");
-          }
-        });
+        if (trimmedQuery) {
+          params.set("q", trimmedQuery);
+        } else {
+          params.delete("q");
+        }
       });
-    }, 250);
+      typingRef.current = false;
+      setSearchDraft(null);
+    }, 300);
   };
 
-  const handleCategoryFilterChange = (value: string) => {
+  const handleCategoryFilterChange = (values: string[]) => {
     startFilterTransition(() => {
-      setFilterCategory(value);
+      setFilterCategories(values);
       replaceSearchParams((params) => {
-        if (value === "all") {
-          params.delete("category");
-        } else {
-          params.set("category", value);
-        }
+        params.delete("categories");
+        values.forEach((v) => params.append("categories", v));
       });
     });
   };
@@ -302,15 +372,12 @@ export default function TransactionsTable({
     });
   };
 
-  const handleUserFilterChange = (value: string) => {
+  const handleUserFilterChange = (values: string[]) => {
     startFilterTransition(() => {
-      setFilterUser(value);
+      setFilterUsers(values);
       replaceSearchParams((params) => {
-        if (value === "all") {
-          params.delete("user");
-        } else {
-          params.set("user", value);
-        }
+        params.delete("users");
+        values.forEach((v) => params.append("users", v));
       });
     });
   };
@@ -329,16 +396,18 @@ export default function TransactionsTable({
 
   const clearAllFilters = () => {
     startFilterTransition(() => {
-      setFilterCategory("all");
+      setFilterCategories([]);
       setDatePreset("all");
       setCustomRange({});
-      setFilterUser("all");
+      setFilterUsers([]);
+      setFilterPinned(false);
       replaceSearchParams((params) => {
-        params.delete("category");
+        params.delete("categories");
         params.delete("preset");
         params.delete("from");
         params.delete("to");
-        params.delete("user");
+        params.delete("users");
+        params.delete("pinned");
       });
     });
   };
@@ -378,7 +447,7 @@ export default function TransactionsTable({
           categoryId === "none" ? null : categoryId
         );
         toast.success("Catégorie mise à jour");
-        setEditingTx(null);
+        setEditingTxId(null);
         router.refresh();
       } catch {
         toast.error("Erreur lors de la mise à jour");
@@ -397,9 +466,9 @@ export default function TransactionsTable({
   const hasMultipleMembers = (members?.length ?? 0) > 1;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col min-h-0 flex-1 gap-4">
       {/* Filter bar */}
-      <div className="sticky top-0 z-20 bg-background pt-6 md:pt-8 pb-4 flex flex-col gap-2">
+      <div className="shrink-0 pt-6 md:pt-8 pb-4 flex flex-col gap-2">
         {/* Search + filter pills */}
         <div className="flex gap-2 flex-wrap sm:flex-nowrap">
           {/* Search input */}
@@ -413,31 +482,33 @@ export default function TransactionsTable({
             />
           </div>
 
-          {/* Category pill */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant={filterCategory !== "all" ? "secondary" : "outline"}>
-                <Tag data-icon="inline-start" />
-                {activeCategoryName ?? "Catégorie"}
-                <ChevronDown data-icon="inline-end" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Catégorie</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={filterCategory}
-                onValueChange={handleCategoryFilterChange}
-              >
-                <DropdownMenuRadioItem value="all">
-                  Toutes catégories
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="uncategorized">
+          {/* Category combobox — multi-select */}
+          <Combobox
+            multiple
+            value={filterCategories}
+            onValueChange={handleCategoryFilterChange}
+          >
+            <ComboboxTrigger
+              className={cn(
+                buttonVariants({
+                  variant: filterCategories.length > 0 ? "secondary" : "outline",
+                }),
+              )}
+            >
+              <Tag data-icon="inline-start" />
+              {categoryFilterLabel}
+            </ComboboxTrigger>
+            <ComboboxPopup align="end" className="font-heading w-56">
+              <ComboboxList>
+                <ComboboxItem value="uncategorized">
+                  <span className="size-4 shrink-0 flex items-center justify-center rounded-sm bg-muted">
+                    <Layers className="size-3 text-muted-foreground" />
+                  </span>
                   Non catégorisé
-                </DropdownMenuRadioItem>
-                {categories.length > 0 && <DropdownMenuSeparator />}
+                </ComboboxItem>
+                {categories.length > 0 && <ComboboxSeparator />}
                 {categories.map((cat) => (
-                  <DropdownMenuRadioItem key={cat.id} value={cat.id}>
+                  <ComboboxItem key={cat.id} value={cat.id}>
                     <span
                       className="size-4 shrink-0 flex items-center justify-center rounded-sm"
                       style={cat.color ? { backgroundColor: cat.color + "22" } : undefined}
@@ -449,43 +520,39 @@ export default function TransactionsTable({
                       />
                     </span>
                     {cat.name}
-                  </DropdownMenuRadioItem>
+                  </ComboboxItem>
                 ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </ComboboxList>
+            </ComboboxPopup>
+          </Combobox>
 
-          {/* User pill — only show when multiple members */}
+          {/* User combobox — multi-select, only when multiple members */}
           {hasMultipleMembers && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={filterUser !== "all" ? "secondary" : "outline"}>
-                  <User data-icon="inline-start" />
-                  {activeUserName ?? "Membre"}
-                  <ChevronDown data-icon="inline-end" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Membre</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuRadioGroup
-                  value={filterUser}
-                  onValueChange={handleUserFilterChange}
-                >
-                  <DropdownMenuRadioItem value="all">
-                    Tous les membres
-                  </DropdownMenuRadioItem>
+            <Combobox
+              multiple
+              value={filterUsers}
+              onValueChange={handleUserFilterChange}
+            >
+              <ComboboxTrigger
+                className={cn(
+                  buttonVariants({
+                    variant: filterUsers.length > 0 ? "secondary" : "outline",
+                  }),
+                )}
+              >
+                <User data-icon="inline-start" />
+                {userFilterLabel}
+              </ComboboxTrigger>
+              <ComboboxPopup align="end" className="font-heading w-48">
+                <ComboboxList>
                   {members?.map((member) => (
-                    <DropdownMenuRadioItem
-                      key={member.userId}
-                      value={member.userId}
-                    >
+                    <ComboboxItem key={member.userId} value={member.userId}>
                       {member.user.name ?? member.user.email}
-                    </DropdownMenuRadioItem>
+                    </ComboboxItem>
                   ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </ComboboxList>
+              </ComboboxPopup>
+            </Combobox>
           )}
 
           {/* Date pill */}
@@ -574,32 +641,6 @@ export default function TransactionsTable({
               </div>
             </PopoverContent>
           </Popover>
-
-          {/* Sort pill */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline">
-                <ArrowDownUp data-icon="inline-start" />
-                {sortOrder === "desc" ? "Plus récentes" : "Plus anciennes"}
-                <ChevronDown data-icon="inline-end" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Trier par date</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={sortOrder}
-                onValueChange={handleSortChange}
-              >
-                <DropdownMenuRadioItem value="desc">
-                  Plus récentes
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="asc">
-                  Plus anciennes
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
 
         {/* Active filter chips + result count */}
@@ -607,23 +648,23 @@ export default function TransactionsTable({
           <div className="flex items-center gap-1.5 flex-wrap">
             {hasActiveFilters && (
               <>
-                {activeCategoryName && (
+                {categoryFilterLabel && categoryFilterLabel !== "Catégorie" && (
                   <Badge
                     variant="secondary"
                     className="cursor-pointer"
-                    onClick={() => handleCategoryFilterChange("all")}
+                    onClick={() => handleCategoryFilterChange([])}
                   >
-                    {activeCategoryName}
+                    {categoryFilterLabel}
                     <X />
                   </Badge>
                 )}
-                {activeUserName && (
+                {userFilterLabel && userFilterLabel !== "Membre" && (
                   <Badge
                     variant="secondary"
                     className="cursor-pointer"
-                    onClick={() => handleUserFilterChange("all")}
+                    onClick={() => handleUserFilterChange([])}
                   >
-                    {activeUserName}
+                    {userFilterLabel}
                     <X />
                   </Badge>
                 )}
@@ -658,19 +699,36 @@ export default function TransactionsTable({
       </div>
 
       {/* Table */}
-      <div className="border border-border overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/30 hover:bg-muted/30">
+      <div className="flex-1 min-h-0 border border-border overflow-hidden">
+        <div className="overflow-y-auto h-full">
+          <Table className="w-full caption-bottom text-sm table-fixed">
+            <TableHeader className="sticky top-0 z-10 bg-muted/30">
+              <TableRow className="hover:bg-muted/30">
               <TableHead className="w-4 p-0" />
-              <TableHead className="w-24 text-xs uppercase tracking-wider font-semibold text-muted-foreground">Date</TableHead>
-              <TableHead className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">Libellé</TableHead>
-              <TableHead className="w-36 text-xs uppercase tracking-wider font-semibold text-muted-foreground">Catégorie</TableHead>
-              <TableHead className="w-28 hidden sm:table-cell text-xs uppercase tracking-wider font-semibold text-muted-foreground">Compte</TableHead>
+              <TableHead className="w-24">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-3 h-8 gap-1 px-0 font-heading hover:text-foreground"
+                  onClick={() => handleSortChange(sortOrder === "desc" ? "asc" : "desc")}
+                >
+                  Date
+                  {sortOrder === "desc" ? (
+                    <ArrowDown className="size-3.5" />
+                  ) : sortOrder === "asc" ? (
+                    <ArrowUp className="size-3.5" />
+                  ) : (
+                    <ArrowUpDown className="size-3.5" />
+                  )}
+                </Button>
+              </TableHead>
+              <TableHead className="font-heading">Libellé</TableHead>
+              <TableHead className="w-36 font-heading">Catégorie</TableHead>
+              <TableHead className="w-28 hidden sm:table-cell font-heading">Compte</TableHead>
               {hasMultipleMembers && (
-                <TableHead className="w-28 hidden lg:table-cell text-xs uppercase tracking-wider font-semibold text-muted-foreground">Membre</TableHead>
+                <TableHead className="w-28 hidden lg:table-cell font-heading">Membre</TableHead>
               )}
-              <TableHead className="w-32 text-right text-xs uppercase tracking-wider font-semibold text-muted-foreground">Montant</TableHead>
+              <TableHead className="w-32 text-right font-heading">Montant</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -711,7 +769,7 @@ export default function TransactionsTable({
                   <TableRow
                     key={tx.id}
                     className="cursor-pointer group"
-                    onClick={() => setEditingTx(tx)}
+                    onClick={() => setEditingTxId(tx.id)}
                   >
                     {/* Type indicator bar */}
                     <TableCell className="p-0 w-4">
@@ -764,11 +822,7 @@ export default function TransactionsTable({
                             <span className="text-foreground font-medium">
                               {tx.category.name}
                             </span>
-                            {tx.confidence > 0 && tx.confidence < 0.7 && (
-                              <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                                {Math.round(tx.confidence * 100)}%
-                              </span>
-                            )}
+                            
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -815,77 +869,174 @@ export default function TransactionsTable({
               })
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
 
-      {/* Edit Sheet */}
-      <Sheet open={!!editingTx} onOpenChange={() => setEditingTx(null)}>
-        <SheetContent side="right">
-          <SheetHeader>
-            <SheetTitle>Modifier la transaction</SheetTitle>
+      {/* Transaction Details Sheet */}
+      <Sheet open={!!editingTxId} onOpenChange={() => {
+        setEditingTxId(null);
+      }}>
+        <SheetContent side="right" className="flex flex-col gap-0 p-0">
+          <SheetHeader className="sr-only">
+            <SheetTitle>Détails de la transaction</SheetTitle>
           </SheetHeader>
-          {editingTx && (
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-5">
-              <div className="rounded-lg border border-border p-3">
-                <p className="text-sm font-medium">{editingTx.label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {format(new Date(editingTx.dateOperation), "dd MMMM yyyy")} ·{" "}
-                  <span
-                    className={cn(
-                      "font-medium",
-                      editingTxAmountDisplay?.className
-                    )}
-                  >
-                    {editingTxAmountDisplay?.prefix}
-                    {editingTxAmountDisplay?.value}
-                  </span>
-                </p>
-                {editingTx.merchant && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {editingTx.merchant}
-                  </p>
-                )}
-                {editingTx.ownerUser && hasMultipleMembers && (
-                  <p className="text-xs text-muted-foreground/70 mt-1">
-                    Importé par {editingTx.ownerUser.name ?? editingTx.ownerUser.email}
-                  </p>
-                )}
+          {/* Header */}
+          {txDetails && (
+            <SheetHeader className="px-5 pt-5 pb-4 border-b border-border">
+              <div className="flex items-start justify-between gap-3 pr-8">
+                <div className="flex flex-col gap-1 min-w-0">
+                  <SheetTitle className="truncate">
+                    {txDetails.merchant ?? txDetails.label}
+                  </SheetTitle>
+                  {txDetails.merchant && (
+                    <SheetDescription className="truncate">
+                      {txDetails.label}
+                    </SheetDescription>
+                  )}
+                  <SheetDescription>
+                    {format(new Date(txDetails.dateOperation), "dd MMMM yyyy", { locale: fr })}
+                  </SheetDescription>
+                </div>
+                <span className={cn(
+                  "shrink-0 font-semibold tabular-nums",
+                  getTransactionAmountDisplay(txDetails.amount, txDetails.type, txDetails.currency).className
+                )}>
+                  {getTransactionAmountDisplay(txDetails.amount, txDetails.type, txDetails.currency).prefix}
+                  {getTransactionAmountDisplay(txDetails.amount, txDetails.type, txDetails.currency).value}
+                </span>
+              </div>
+            </SheetHeader>
+          )}
+
+          {/* Loading / Error states */}
+          {txDetailsLoading && (
+            <div className="flex-1 flex items-center justify-center">
+              <Spinner />
+            </div>
+          )}
+          {txDetailsError && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6">
+              <AlertCircle className="size-8 text-destructive" />
+              <p className="text-sm text-muted-foreground">{txDetailsError}</p>
+            </div>
+          )}
+
+          {/* Content */}
+          {txDetails && !txDetailsLoading && (
+            <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-6">
+              {/* Quick actions */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={txDetails.pinned ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    startTransition(async () => {
+                      await updateTransactionMetadata(editingTxId!, { pinned: !txDetails.pinned });
+                      setTxDetails(prev => prev ? { ...prev, pinned: !prev.pinned } : null);
+                    });
+                  }}
+                >
+                  {txDetails.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                  {txDetails.pinned ? "Désépingler" : "Épingler"}
+                </Button>
               </div>
 
+              {/* Category */}
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="transaction-category">
-                    Catégorie
-                  </FieldLabel>
+                  <FieldLabel htmlFor="tx-category">Catégorie</FieldLabel>
                   <Select
-                    value={editingTx.category?.id ?? "none"}
+                    value={editingTx?.category?.id ?? "none"}
                     onValueChange={(val) =>
                       handleCategoryChange(
-                        editingTx.id,
+                        editingTxId!,
                         val === "none" ? null : (val ?? null)
                       )
                     }
                     disabled={isPending}
                   >
-                    <SelectTrigger id="transaction-category">
+                    <SelectTrigger id="tx-category">
                       <SelectValue placeholder="Sélectionner" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Non catégorisé</SelectItem>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        <SelectItem value="none">Non catégorisé</SelectItem>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            <span className="flex items-center gap-2">
+                              <CategoryIcon icon={cat.icon} className="size-3" style={cat.color ? { color: cat.color } : undefined} />
+                              {cat.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </Field>
               </FieldGroup>
 
-              {isPending && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
-                  Mise à jour en cours…
+              {/* Note */}
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="tx-note">Note</FieldLabel>
+                  <Textarea
+                    id="tx-note"
+                    value={txDetails.note ?? ""}
+                    placeholder="Ajouter une note…"
+                    rows={3}
+                    className="resize-none"
+                    onChange={(e) => {
+                      const note = e.target.value || null;
+                      startTransition(async () => {
+                        await updateTransactionMetadata(editingTxId!, { note });
+                        setTxDetails(prev => prev ? { ...prev, note } : null);
+                      });
+                    }}
+                  />
+                </Field>
+              </FieldGroup>
+
+              {/* Similar transactions */}
+              {txDetails.similarHistory.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">
+                      Historique similaire
+                    </Label>
+                  </div>
+                  <div className="flex flex-col divide-y divide-border rounded-lg border overflow-hidden">
+                    {txDetails.similarHistory.map((sim) => {
+                      const simAmount = getTransactionAmountDisplay(sim.amount, sim.type, sim.currency);
+                      return (
+                        <button
+                          key={sim.id}
+                          className="flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50 transition-colors"
+                          onClick={() => setEditingTxId(sim.id)}
+                        >
+                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                            <span className="text-sm truncate">{sim.label}</span>
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {format(new Date(sim.dateOperation), "dd MMM yyyy")}
+                              {sim.category && (
+                                <span className="ml-2">{sim.category.name}</span>
+                              )}
+                            </span>
+                          </div>
+                          <span className={cn("text-sm font-medium tabular-nums shrink-0", simAmount.className)}>
+                            {simAmount.prefix}{simAmount.value}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata */}
+              {txDetails.ownerUser && hasMultipleMembers && (
+                <div className="text-xs text-muted-foreground">
+                  Importé par {txDetails.ownerUser.name ?? txDetails.ownerUser.email}
                 </div>
               )}
             </div>

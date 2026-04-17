@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/auth";
 import { Prisma } from "@prisma/client";
 import type { Metadata } from "next";
-import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
 import TransactionsTable from "./page-client";
 import {
+  getAllSearchParams,
   getSearchParam,
   getTransactionDateRange,
   isTransactionDatePreset,
@@ -27,6 +27,7 @@ type TransactionsSearchParams = Promise<{
   sort?: string | string[];
   account?: string | string[];
   user?: string | string[];
+  pinned?: string | string[];
 }>;
 
 export default async function TransactionsPage({
@@ -55,27 +56,32 @@ export default async function TransactionsPage({
       );
   const sort: TransactionSort = isTransactionSort(rawSort) ? rawSort : "desc";
   const rawAccount = getSearchParam(rawParams.account);
-  const rawUser = getSearchParam(rawParams.user);
+  const rawUsers = getAllSearchParams(rawParams.user);
+  const rawCategories = getAllSearchParams(rawParams.category);
 
   const accountIds = new Set(accounts.map((a) => a.id));
   const userIds = new Set(members.map((m) => m.userId));
 
+  const validUsers = rawUsers.filter((u) => userIds.has(u));
+  const rawPinned = getSearchParam(rawParams.pinned);
+
   const params = {
     q: getSearchParam(rawParams.q)?.trim() || undefined,
-    category: getSearchParam(rawParams.category) || undefined,
+    categories: rawCategories.length > 0 ? rawCategories : undefined,
     preset: isTransactionDatePreset(preset) ? preset : undefined,
     from: normalizedDateParams.from,
     to: normalizedDateParams.to,
     sort,
     account: rawAccount && accountIds.has(rawAccount) ? rawAccount : undefined,
-    user: rawUser && userIds.has(rawUser) ? rawUser : undefined,
+    users: validUsers.length > 0 ? validUsers : undefined,
+    pinned: rawPinned === "1" ? true : rawPinned === "0" ? false : undefined,
   };
   const dateRange = getTransactionDateRange(params);
 
   const where: Prisma.TransactionWhereInput = {
     bankAccount: { workspaceId: ctx.workspaceId },
     ...(params.account ? { bankAccountId: params.account } : {}),
-    ...(params.user ? { ownerUserId: params.user } : {}),
+    ...(params.users ? { ownerUserId: { in: params.users } } : {}),
     ...(params.q
       ? {
           OR: [
@@ -100,11 +106,16 @@ export default async function TransactionsPage({
           ],
         }
       : {}),
-    ...(params.category === "uncategorized"
-      ? { categoryId: null }
-      : params.category
-        ? { categoryId: params.category }
-        : {}),
+    ...(params.categories
+      ? (() => {
+          const hasUncategorized = params.categories.includes("uncategorized");
+          const ids = params.categories.filter((c) => c !== "uncategorized");
+          if (hasUncategorized && ids.length === 0) return { categoryId: null };
+          if (hasUncategorized && ids.length > 0)
+            return { OR: [{ categoryId: null }, { categoryId: { in: ids } }] };
+          return { categoryId: { in: ids } };
+        })()
+      : {}),
     ...(dateRange.gte || dateRange.lt
       ? {
           dateOperation: {
@@ -113,6 +124,7 @@ export default async function TransactionsPage({
           },
         }
       : {}),
+    ...(params.pinned !== undefined ? { pinned: params.pinned } : {}),
   };
 
   const transactionsRaw = await prisma.transaction.findMany({
@@ -146,10 +158,12 @@ export default async function TransactionsPage({
     ownerUser: tx.ownerUser
       ? { id: tx.ownerUser.id, name: tx.ownerUser.name, email: tx.ownerUser.email, image: tx.ownerUser.image }
       : null,
+    note: tx.note,
+    pinned: tx.pinned,
   }));
 
   return (
-    <AppPageShell>
+    <div className="flex flex-col min-h-0 flex-1 gap-4">
       <AppPageHeader
         title="Transactions"
         description={`${serializedTransactions.length} transaction${serializedTransactions.length > 1 ? "s" : ""} enregistrées`}
@@ -171,6 +185,6 @@ export default async function TransactionsPage({
           },
         }))}
       />
-    </AppPageShell>
+    </div>
   );
 }

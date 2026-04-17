@@ -1,7 +1,7 @@
 export type TransactionAmountType = "CREDIT" | "DEBIT" | "TRANSFER" | "FEE" | string
 
-export function formatCurrency(amount: number, currency = "EUR") {
-  return new Intl.NumberFormat("fr-FR", {
+export function formatCurrency(amount: number, currency = "EUR", locale = "fr-FR") {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,
   }).format(amount)
@@ -10,7 +10,8 @@ export function formatCurrency(amount: number, currency = "EUR") {
 export function getTransactionAmountDisplay(
   amount: number,
   type: TransactionAmountType,
-  currency = "EUR"
+  currency = "EUR",
+  locale = "fr-FR"
 ) {
   const isPositive = type === "CREDIT"
   const isNegative = type === "DEBIT" || type === "FEE"
@@ -19,9 +20,9 @@ export function getTransactionAmountDisplay(
     className: isPositive
       ? "text-green-600 dark:text-green-400"
       : isNegative
-        ? "text-destructive"
+      ? "text-destructive"
         : "text-muted-foreground",
     prefix: isNegative ? "-" : isPositive ? "+" : "",
-    value: formatCurrency(amount, currency),
+    value: formatCurrency(amount, currency, locale),
   }
 }

@@ -70,8 +70,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Default Admin Credentials (after seed)
 
-- **Email:** `admin@example.com`
-- **Password:** `StrongPassword123!`
+- **Email:** `theo.daguier@icloud.com` (or `ADMIN_EMAIL` env var)
+- **Password:** `Pokemon72000!` (or `ADMIN_PASSWORD` env var)
 
 > ⚠️ Change these credentials immediately after first login.
 
@@ -112,16 +112,75 @@ API key management is available in the workspace settings.
 
 ### Docker
 
-A `Dockerfile` and `docker-compose.yml` are included for easy self-hosting.
+The `Dockerfile` uses a multi-stage build and produces two targets:
+
+- **`runner`** — the production Next.js server (default target, use as the main container)
+- **`migrator`** — a one-off container to run Prisma migrations
+
+The included `docker-compose.yml` wires everything together, including a
+PostgreSQL 16 container with persistent storage. For production, replace the
+`db` service with a managed PostgreSQL service (e.g., Supabase, Neon, Railway).
+
+#### Prerequisites
+
+- Docker 24+
+
+#### Setup
 
 ```bash
-# Build and run
+# Prerequisites: Docker daemon must be running
+# 1. Copy the environment template and fill in your values
+cp .env.example .env
+# Then edit .env — at minimum you need:
+#   BETTER_AUTH_SECRET   (generate with: openssl rand -base64 32)
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+#   (or use the defaults — ledgi / changeme / ledgi)
+
+# 2. Build the image
+docker compose build
+
+# 3. Start the database and wait for it to be healthy
+docker compose up -d db
+docker compose ps   # wait until db is healthy
+
+# 4. Run database migrations (one-off)
+docker compose --profile migrate run migrator
+
+# 5. Start the app
 docker compose up -d
 
 # The app will be available at http://localhost:3000
 ```
 
-For production, use a PostgreSQL container or a managed database service (e.g., Supabase, Neon, Railway).
+#### Persisting avatars
+
+Avatar images are stored on disk at `public/uploads/avatars`. The compose file
+mounts a named volume so they survive container restarts:
+
+```yaml
+volumes:
+  - ledgi_uploads:/app/public/uploads
+```
+
+#### Updating after code changes
+
+```bash
+docker compose build
+docker compose --profile migrate run migrator
+docker compose up -d
+```
+
+#### Database schema changes
+
+After modifying `prisma/schema.prisma`, rebuild and re-run migrations:
+
+```bash
+docker compose build
+docker compose --profile migrate run migrator
+docker compose up -d
+```
+
+For production, use a managed PostgreSQL service (e.g., Supabase, Neon, Railway).
 
 ### Vercel
 

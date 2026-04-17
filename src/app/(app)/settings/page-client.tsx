@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTheme } from "next-themes";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   changePassword,
   createNewApiKey,
   revokeApiKey,
+  updateUserSettings,
   updateProfile,
   updateUserImage,
 } from "@/actions/settings";
@@ -21,7 +23,7 @@ import {
   CardDescription,
   CardAction,
 } from "@/components/ui/card";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldError } from "@/components/ui/field";
 import {
   Dialog,
   DialogContent,
@@ -40,16 +42,21 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Trash2, Plus, Copy, Check, KeyRound, Star } from "lucide-react";
+import { Trash2, Plus, Copy, Check, KeyRound, Star } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
 import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import { Badge } from "@/components/ui/badge";
+import { getAppMessages, type AppMessages } from "@/lib/app-messages";
+import { passwordFormSchema, apiKeyFormSchema, inviteFormSchema } from "@/lib/validation/schemas";
+import { LOCALE_OPTIONS, normalizeAppLocale, type AppLocale } from "@/lib/locale";
 import { Separator } from "@/components/ui/separator";
 
 type PermissionLevel = "none" | "read" | "write" | "import_delete";
@@ -74,44 +81,48 @@ interface PermissionConfig {
   defaultLevel: PermissionLevel;
 }
 
-const PERMISSION_CONFIG: Record<string, PermissionConfig> = {
-  transactions: {
-    label: "Transactions",
-    levels: ["none", "read", "write"],
-    defaultLevel: "read",
-  },
-  rules: {
-    label: "Règles de catégorisation",
-    levels: ["none", "read", "write"],
-    defaultLevel: "none",
-  },
-  summary: {
-    label: "Résumé / dashboard",
-    levels: ["none", "read"],
-    defaultLevel: "none",
-  },
-  accounts: {
-    label: "Comptes bancaires",
-    levels: ["none", "read", "write"],
-    defaultLevel: "none",
-  },
-  categories: {
-    label: "Catégories",
-    levels: ["none", "read", "write"],
-    defaultLevel: "none",
-  },
-  imports: {
-    label: "Imports",
-    levels: ["none", "read", "import_delete"],
-    defaultLevel: "none",
-  },
-};
+type SettingsMessages = AppMessages["settings"];
+
+function getPermissionConfig(messages: SettingsMessages): Record<string, PermissionConfig> {
+  return {
+    transactions: {
+      label: messages.apiKeys.resources.transactions,
+      levels: ["none", "read", "write"],
+      defaultLevel: "read",
+    },
+    rules: {
+      label: messages.apiKeys.resources.rules,
+      levels: ["none", "read", "write"],
+      defaultLevel: "none",
+    },
+    summary: {
+      label: messages.apiKeys.resources.summary,
+      levels: ["none", "read"],
+      defaultLevel: "none",
+    },
+    accounts: {
+      label: messages.apiKeys.resources.accounts,
+      levels: ["none", "read", "write"],
+      defaultLevel: "none",
+    },
+    categories: {
+      label: messages.apiKeys.resources.categories,
+      levels: ["none", "read", "write"],
+      defaultLevel: "none",
+    },
+    imports: {
+      label: messages.apiKeys.resources.imports,
+      levels: ["none", "read", "import_delete"],
+      defaultLevel: "none",
+    },
+  };
+}
 
 type Permissions = Record<string, PermissionLevel>;
 
 function scopesToPermissions(scopes: string[]): Permissions {
   const permissions: Permissions = {};
-  for (const resource of Object.keys(PERMISSION_CONFIG)) {
+  for (const resource of ["transactions", "rules", "summary", "accounts", "categories", "imports"]) {
     if (resource === "summary") {
       permissions[resource] = scopes.includes("summary.read") ? "read" : "none";
     } else if (resource === "imports") {
@@ -140,24 +151,25 @@ function scopesToPermissions(scopes: string[]): Permissions {
 }
 
 function formatPermissionLabel(
-  resource: string,
-  level: PermissionLevel
+  level: PermissionLevel,
+  messages: SettingsMessages,
 ): string {
-  if (level === "none") return "Aucun";
-  if (level === "read") return "Lecture";
-  if (level === "write") return "Lecture + écriture";
-  if (level === "import_delete") return "Importer + supprimer";
+  if (level === "none") return messages.apiKeys.permissionLabels.none;
+  if (level === "read") return messages.apiKeys.permissionLabels.read;
+  if (level === "write") return messages.apiKeys.permissionLabels.write;
+  if (level === "import_delete") return messages.apiKeys.permissionLabels.import_delete;
   return level;
 }
 
 function getPermissionSummary(
-  scopes: string[]
+  scopes: string[],
+  messages: SettingsMessages,
 ): Record<string, string> {
   const perms = scopesToPermissions(scopes);
   const summary: Record<string, string> = {};
   for (const [resource, level] of Object.entries(perms)) {
     if (level !== "none") {
-      summary[resource] = formatPermissionLabel(resource, level);
+      summary[resource] = formatPermissionLabel(level, messages);
     }
   }
   return summary;
@@ -183,15 +195,16 @@ function permissionsToScopes(perms: Permissions): Scope[] {
   return scopes;
 }
 
-function defaultPermissions(): Permissions {
+function defaultPermissions(config?: Record<string, PermissionConfig>): Permissions {
+  const permissionConfig = config ?? getPermissionConfig(getAppMessages("fr-FR").settings);
   const perms: Permissions = {};
-  for (const [resource, config] of Object.entries(PERMISSION_CONFIG)) {
-    perms[resource] = config.defaultLevel;
+  for (const [resource, entry] of Object.entries(permissionConfig)) {
+    perms[resource] = entry.defaultLevel;
   }
   return perms;
 }
 
-const VALID_TABS = ["profil", "securite", "cles-api", "partage"] as const;
+const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
 function isValidTab(tab: string | undefined): tab is TabValue {
@@ -207,14 +220,101 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
+function InterfaceTab({
+  savedLocale,
+  selectedLocale,
+  onLocaleChange,
+  onSaveLocale,
+  isPending,
+  messages,
+}: {
+  savedLocale: AppLocale;
+  selectedLocale: AppLocale;
+  onLocaleChange: (locale: AppLocale) => void;
+  onSaveLocale: () => void;
+  isPending: boolean;
+  messages: SettingsMessages;
+}) {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{messages.interface.title}</CardTitle>
+        <CardDescription>{messages.interface.description}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="settings-locale">{messages.interface.languageLabel}</FieldLabel>
+            <Select
+              value={selectedLocale}
+              onValueChange={(value) => onLocaleChange(normalizeAppLocale(value))}
+            >
+              <SelectTrigger id="settings-locale" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {LOCALE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="settings-theme">{messages.interface.themeLabel}</FieldLabel>
+            <Select
+              value={theme ?? "system"}
+              onValueChange={(value) => setTheme(value)}
+            >
+              <SelectTrigger id="settings-theme" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="system">{messages.interface.themeSystem}</SelectItem>
+                  <SelectItem value="light">{messages.interface.themeLight}</SelectItem>
+                  <SelectItem value="dark">{messages.interface.themeDark}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+        </FieldGroup>
+
+        <Button
+          onClick={onSaveLocale}
+          disabled={isPending || selectedLocale === savedLocale}
+          className="w-fit"
+        >
+          {isPending ? (
+            <>
+              <Spinner data-icon="inline-start" />
+              {messages.profile.saving}
+            </>
+          ) : (
+            messages.profile.save
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ProfileForm({
   user,
   onSave,
   isPending,
+  messages,
 }: {
   user: { email: string; name: string | null; image: string | null | undefined };
   onSave: (data: { name: string }) => void;
   isPending: boolean;
+  messages: SettingsMessages;
 }) {
   const [name, setName] = useState(user.name ?? "");
   const router = useRouter();
@@ -245,8 +345,8 @@ function ProfileForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Profil</CardTitle>
-        <CardDescription>Vos informations personnelles</CardDescription>
+        <CardTitle>{messages.profile.title}</CardTitle>
+        <CardDescription>{messages.profile.description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         <div className="flex items-center gap-4">
@@ -257,23 +357,23 @@ function ProfileForm({
             onDelete={handleDeleteAvatar}
           />
           <div className="flex flex-col gap-0.5">
-            <p className="text-sm font-medium">{name || "Sans nom"}</p>
+            <p className="text-sm font-medium">{name || messages.profile.noName}</p>
             <p className="text-xs text-muted-foreground">{user.email}</p>
           </div>
         </div>
 
         <FieldGroup>
           <Field>
-            <FieldLabel htmlFor="settings-name">Nom</FieldLabel>
+            <FieldLabel htmlFor="settings-name">{messages.profile.nameLabel}</FieldLabel>
             <Input
               id="settings-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Votre nom"
+              placeholder={messages.profile.namePlaceholder}
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="settings-email">Email</FieldLabel>
+            <FieldLabel htmlFor="settings-email">{messages.profile.emailLabel}</FieldLabel>
             <Input
               id="settings-email"
               value={user.email}
@@ -290,11 +390,11 @@ function ProfileForm({
         >
           {isPending ? (
             <>
-              <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
-              Enregistrement...
+              <Spinner data-icon="inline-start" />
+              {messages.profile.saving}
             </>
           ) : (
-            "Enregistrer"
+            messages.profile.save
           )}
         </Button>
       </CardContent>
@@ -304,7 +404,7 @@ function ProfileForm({
 
 function SettingsContent({
   user,
-  userSettings: _userSettings,
+  userSettings,
   apiKeys,
   initialTab,
   workspace,
@@ -349,23 +449,39 @@ function SettingsContent({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const savedLocale = normalizeAppLocale(userSettings?.locale);
+  const settingsMessages = getAppMessages(savedLocale).settings;
+  const permissionConfig = getPermissionConfig(settingsMessages);
 
   const [isPending, startTransition] = useTransition();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string[]>>({});
 
   const [pendingRevoke, setPendingRevoke] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+  const [inviteErrors, setInviteErrors] = useState<Record<string, string[]>>({});
   const [pendingInviteCancel, setPendingInviteCancel] = useState<string | null>(null);
   const [pendingMemberRemove, setPendingMemberRemove] = useState<string | null>(null);
   const [showCreateKeyDialog, setShowCreateKeyDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyPermissions, setNewKeyPermissions] = useState<Permissions>(defaultPermissions);
+  const [newKeyNameErrors, setNewKeyNameErrors] = useState<Record<string, string[]>>({});
+  const [newKeyPermissions, setNewKeyPermissions] = useState<Permissions>(defaultPermissions(permissionConfig));
   const [newKeyExpiresDays, setNewKeyExpiresDays] = useState<string>("none");
   const [pendingCreatedKey, setPendingCreatedKey] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
+  const [selectedLocale, setSelectedLocale] = useState(savedLocale);
+
+  const formatShortDate = (value: string) =>
+    new Intl.DateTimeFormat(savedLocale, { dateStyle: "short" }).format(new Date(value));
+
+  const formatRole = (role: string) => {
+    if (role === "OWNER") return settingsMessages.sharing.owner;
+    if (role === "ADMIN") return settingsMessages.sharing.admin;
+    return settingsMessages.sharing.member;
+  };
 
   const handleTabChange = (value: string) => {
     if (!isValidTab(value)) return;
@@ -375,25 +491,29 @@ function SettingsContent({
   };
 
   const handlePasswordChange = () => {
-    if (newPassword !== confirmPassword) {
-      toast.error("Les mots de passe ne correspondent pas");
+    const parsed = passwordFormSchema.safeParse({ currentPassword, newPassword, confirmPassword });
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setPasswordErrors(fieldErrors);
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error("Le mot de passe doit contenir au moins 8 caractères");
-      return;
-    }
+    setPasswordErrors({});
 
     startTransition(async () => {
       try {
         await changePassword(currentPassword, newPassword);
-        toast.success("Mot de passe mis à jour");
+        toast.success(settingsMessages.security.updateSuccess);
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors du changement"
+          err instanceof Error ? err.message : settingsMessages.security.update
         );
       }
     });
@@ -403,11 +523,25 @@ function SettingsContent({
     startTransition(async () => {
       try {
         await updateProfile(data);
-        toast.success("Profil mis à jour");
+        toast.success(settingsMessages.profile.updateSuccess);
         router.refresh();
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de la mise à jour"
+          err instanceof Error ? err.message : settingsMessages.profile.updateSuccess
+        );
+      }
+    });
+  };
+
+  const handleSaveLocale = () => {
+    startTransition(async () => {
+      try {
+        await updateUserSettings({ locale: selectedLocale });
+        toast.success(settingsMessages.preferences.updateSuccess);
+        router.refresh();
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : settingsMessages.preferences.updateSuccess
         );
       }
     });
@@ -422,10 +556,10 @@ function SettingsContent({
     startTransition(async () => {
       try {
         await revokeApiKey(pendingRevoke);
-        toast.success("Clé révoquée");
+        toast.success(settingsMessages.apiKeys.revokeSuccess);
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de la révocation"
+          err instanceof Error ? err.message : settingsMessages.apiKeys.revokeSuccess
         );
       } finally {
         setPendingRevoke(null);
@@ -434,16 +568,28 @@ function SettingsContent({
   };
 
   const handleInvite = () => {
-    if (!inviteEmail.trim()) return;
+    const parsed = inviteFormSchema.safeParse({ email: inviteEmail, role: inviteRole });
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setInviteErrors(fieldErrors);
+      return;
+    }
+    setInviteErrors({});
+
     startTransition(async () => {
       try {
         await inviteMember(inviteEmail.trim(), inviteRole);
-        toast.success("Invitation envoyée");
+        toast.success(settingsMessages.sharing.inviteSuccess);
         setInviteEmail("");
         router.refresh();
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de l'invitation"
+          err instanceof Error ? err.message : settingsMessages.sharing.invite
         );
       }
     });
@@ -454,10 +600,10 @@ function SettingsContent({
     startTransition(async () => {
       try {
         await cancelInvitation(pendingInviteCancel);
-        toast.success("Invitation annulée");
+        toast.success(settingsMessages.sharing.cancelInviteSuccess);
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de l'annulation"
+          err instanceof Error ? err.message : settingsMessages.sharing.cancelInvite
         );
       } finally {
         setPendingInviteCancel(null);
@@ -470,10 +616,10 @@ function SettingsContent({
     startTransition(async () => {
       try {
         await removeMember(pendingMemberRemove);
-        toast.success("Membre retiré");
+        toast.success(settingsMessages.sharing.removeMemberSuccess);
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de la suppression"
+          err instanceof Error ? err.message : settingsMessages.sharing.confirmRemoveMember
         );
       } finally {
         setPendingMemberRemove(null);
@@ -482,7 +628,19 @@ function SettingsContent({
   };
 
   const handleCreateKey = () => {
-    if (!newKeyName.trim()) return;
+    const parsed = apiKeyFormSchema.safeParse({ name: newKeyName, permissions: newKeyPermissions, expiresDays: newKeyExpiresDays });
+    if (!parsed.success) {
+      const fieldErrors: Record<string, string[]> = {};
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0] as string;
+        if (!fieldErrors[path]) fieldErrors[path] = [];
+        fieldErrors[path].push(issue.message);
+      }
+      setNewKeyNameErrors(fieldErrors);
+      return;
+    }
+    setNewKeyNameErrors({});
+
     startTransition(async () => {
       try {
         const scopes = permissionsToScopes(newKeyPermissions);
@@ -490,13 +648,13 @@ function SettingsContent({
         const { raw } = await createNewApiKey(newKeyName.trim(), scopes, expiresDays);
         setShowCreateKeyDialog(false);
         setNewKeyName("");
-        setNewKeyPermissions(defaultPermissions());
+        setNewKeyPermissions(defaultPermissions(permissionConfig));
         setNewKeyExpiresDays("none");
         setPendingCreatedKey(raw);
         router.refresh();
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "Erreur lors de la création"
+          err instanceof Error ? err.message : settingsMessages.apiKeys.create
         );
       }
     });
@@ -512,66 +670,82 @@ function SettingsContent({
   return (
     <AppPageShell className="max-w-2xl">
       <AppPageHeader
-        title="Paramètres"
-        description="Gérer votre compte et vos préférences"
+        title={settingsMessages.title}
+        description={settingsMessages.description}
       />
 
       <Tabs value={initialTab} onValueChange={handleTabChange}>
-        <TabsList variant="line">
-          <TabsTrigger value="profil">Profil</TabsTrigger>
-          <TabsTrigger value="securite">Sécurité</TabsTrigger>
-          <TabsTrigger value="cles-api">Clés API</TabsTrigger>
-          <TabsTrigger value="partage">Partage</TabsTrigger>
+        <TabsList>
+          <TabsTrigger value="profil">{settingsMessages.tabs.profile}</TabsTrigger>
+          <TabsTrigger value="interface">{settingsMessages.tabs.interface}</TabsTrigger>
+          <TabsTrigger value="securite">{settingsMessages.tabs.security}</TabsTrigger>
+          <TabsTrigger value="cles-api">{settingsMessages.tabs.apiKeys}</TabsTrigger>
+          <TabsTrigger value="partage">{settingsMessages.tabs.sharing}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="profil" className="mt-6">
+        <TabsContent value="profil" className="mt-6 flex flex-col gap-6">
           <ProfileForm
             user={user}
             onSave={handleSaveProfile}
             isPending={isPending}
+            messages={settingsMessages}
+          />
+        </TabsContent>
+
+        <TabsContent value="interface" className="mt-6">
+          <InterfaceTab
+            savedLocale={savedLocale}
+            selectedLocale={selectedLocale}
+            onLocaleChange={setSelectedLocale}
+            onSaveLocale={handleSaveLocale}
+            isPending={isPending}
+            messages={settingsMessages}
           />
         </TabsContent>
 
         <TabsContent value="securite" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Changer le mot de passe</CardTitle>
+              <CardTitle>{settingsMessages.security.title}</CardTitle>
               <CardDescription>
-                Mettez à jour votre mot de passe pour sécuriser votre compte
+                {settingsMessages.security.description}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="current-password">
-                    Mot de passe actuel
+                <Field data-invalid={!!passwordErrors.currentPassword}>
+                  <FieldLabel htmlFor="current-password" required>
+                    {settingsMessages.security.currentPassword}
                   </FieldLabel>
                   <Input
                     id="current-password"
                     type="password"
                     value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    onChange={(e) => { setCurrentPassword(e.target.value); setPasswordErrors({}); }}
                   />
+                  {passwordErrors.currentPassword && <FieldError>{passwordErrors.currentPassword[0]}</FieldError>}
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="new-password">Nouveau mot de passe</FieldLabel>
+                <Field data-invalid={!!passwordErrors.newPassword}>
+                  <FieldLabel htmlFor="new-password" required>{settingsMessages.security.newPassword}</FieldLabel>
                   <Input
                     id="new-password"
                     type="password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(e) => { setNewPassword(e.target.value); setPasswordErrors({}); }}
                   />
+                  {passwordErrors.newPassword && <FieldError>{passwordErrors.newPassword[0]}</FieldError>}
                 </Field>
-                <Field>
-                  <FieldLabel htmlFor="confirm-password">
-                    Confirmer le nouveau mot de passe
+                <Field data-invalid={!!passwordErrors.confirmPassword}>
+                  <FieldLabel htmlFor="confirm-password" required>
+                    {settingsMessages.security.confirmPassword}
                   </FieldLabel>
                   <Input
                     id="confirm-password"
                     type="password"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setPasswordErrors({}); }}
                   />
+                  {passwordErrors.confirmPassword && <FieldError>{passwordErrors.confirmPassword[0]}</FieldError>}
                 </Field>
               </FieldGroup>
               <Button
@@ -583,11 +757,11 @@ function SettingsContent({
               >
                 {isPending ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
-                    Mise à jour...
+                    <Spinner data-icon="inline-start" />
+                    {settingsMessages.security.updating}
                   </>
                 ) : (
-                  "Mettre à jour le mot de passe"
+                  settingsMessages.security.update
                 )}
               </Button>
             </CardContent>
@@ -597,40 +771,41 @@ function SettingsContent({
         <TabsContent value="cles-api" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Clés API</CardTitle>
+              <CardTitle>{settingsMessages.apiKeys.title}</CardTitle>
               <CardDescription>
-                Gérez les clés qui permettent à des agents externes d&apos;accéder à vos données
+                {settingsMessages.apiKeys.description}
               </CardDescription>
               <CardAction>
                 <Dialog open={showCreateKeyDialog} onOpenChange={setShowCreateKeyDialog}>
                   <DialogTrigger asChild>
                     <Button size="sm">
                       <Plus className="size-4" data-icon="inline-start" />
-                      Nouvelle clé
+                      {settingsMessages.apiKeys.newKey}
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Créer une clé API</DialogTitle>
+                      <DialogTitle>{settingsMessages.apiKeys.createTitle}</DialogTitle>
                       <DialogDescription>
-                        Les clés permettent à des agents externes d&apos;accéder à vos données en toute sécurité.
+                        {settingsMessages.apiKeys.createDescription}
                       </DialogDescription>
                     </DialogHeader>
                     <div className="flex flex-col gap-5 py-2">
-                      <Field>
-                        <FieldLabel htmlFor="key-name">Nom de la clé</FieldLabel>
+                      <Field data-invalid={!!newKeyNameErrors.name}>
+                        <FieldLabel htmlFor="key-name" required>{settingsMessages.apiKeys.keyName}</FieldLabel>
                         <Input
                           id="key-name"
                           value={newKeyName}
-                          onChange={(e) => setNewKeyName(e.target.value)}
-                          placeholder="ex: Agent Zapier, Script Python..."
+                          onChange={(e) => { setNewKeyName(e.target.value); setNewKeyNameErrors({}); }}
+                          placeholder={settingsMessages.apiKeys.keyNamePlaceholder}
                         />
+                        {newKeyNameErrors.name && <FieldError>{newKeyNameErrors.name[0]}</FieldError>}
                       </Field>
 
                       <div className="flex flex-col gap-3">
-                        <FieldLabel>Permissions</FieldLabel>
+                        <FieldLabel>{settingsMessages.apiKeys.permissions}</FieldLabel>
                         <div className="flex flex-col divide-y divide-border rounded-lg border overflow-hidden">
-                          {Object.entries(PERMISSION_CONFIG).map(([resource, config]) => (
+                          {(Object.entries(permissionConfig) as Array<[string, PermissionConfig]>).map(([resource, config]) => (
                             <div key={resource} className="flex items-center justify-between px-3 py-2.5 gap-3">
                               <span className="text-sm text-foreground shrink-0">
                                 {config.label}
@@ -648,11 +823,13 @@ function SettingsContent({
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {config.levels.map((level) => (
-                                    <SelectItem key={level} value={level}>
-                                      {formatPermissionLabel(resource, level)}
-                                    </SelectItem>
-                                  ))}
+                                  <SelectGroup>
+                                    {config.levels.map((level) => (
+                                      <SelectItem key={level} value={level}>
+                                        {formatPermissionLabel(level, settingsMessages)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -661,24 +838,26 @@ function SettingsContent({
                       </div>
 
                       <Field>
-                        <FieldLabel>Expiration</FieldLabel>
+                        <FieldLabel>{settingsMessages.apiKeys.expiration}</FieldLabel>
                         <Select value={newKeyExpiresDays} onValueChange={setNewKeyExpiresDays}>
                           <SelectTrigger className="w-full">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Aucune expiration</SelectItem>
-                            <SelectItem value="7">7 jours</SelectItem>
-                            <SelectItem value="30">30 jours</SelectItem>
-                            <SelectItem value="90">90 jours</SelectItem>
-                            <SelectItem value="365">1 an</SelectItem>
+                            <SelectGroup>
+                              <SelectItem value="none">{settingsMessages.apiKeys.noExpiration}</SelectItem>
+                              <SelectItem value="7">{settingsMessages.apiKeys.days7}</SelectItem>
+                              <SelectItem value="30">{settingsMessages.apiKeys.days30}</SelectItem>
+                              <SelectItem value="90">{settingsMessages.apiKeys.days90}</SelectItem>
+                              <SelectItem value="365">{settingsMessages.apiKeys.year1}</SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                       </Field>
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setShowCreateKeyDialog(false)}>
-                        Annuler
+                        {settingsMessages.apiKeys.cancel}
                       </Button>
                       <Button
                         onClick={handleCreateKey}
@@ -686,11 +865,11 @@ function SettingsContent({
                       >
                         {isPending ? (
                           <>
-                            <Loader2 className="size-4 animate-spin" data-icon="inline-start" />
-                            Création...
+                            <Spinner data-icon="inline-start" />
+                            {settingsMessages.apiKeys.creating}
                           </>
                         ) : (
-                          "Créer la clé"
+                          settingsMessages.apiKeys.create
                         )}
                       </Button>
                     </DialogFooter>
@@ -702,14 +881,14 @@ function SettingsContent({
               {apiKeys.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-10 text-center px-6">
                   <KeyRound className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
-                  <p className="text-sm font-medium">Aucune clé API</p>
+                  <p className="text-sm font-medium">{settingsMessages.apiKeys.noKeys}</p>
                   <p className="text-xs text-muted-foreground max-w-xs">
-                    Créez une clé pour permettre à des agents externes d&apos;accéder à vos données.
+                    {settingsMessages.apiKeys.noKeysDescription}
                   </p>
                 </div>
               ) : (
                 apiKeys.map((key, i) => {
-                  const summary = getPermissionSummary(key.scopes);
+                  const summary = getPermissionSummary(key.scopes, settingsMessages);
                   return (
                     <>
                       {i > 0 && <Separator key={`sep-${key.id}`} />}
@@ -726,12 +905,12 @@ function SettingsContent({
                           </div>
                           <p className="text-xs text-muted-foreground">
                             {Object.keys(summary).length === 0
-                              ? "Aucune permission"
-                              : Object.keys(summary).map((r) => PERMISSION_CONFIG[r]?.label ?? r).join(" · ")}
+                              ? settingsMessages.apiKeys.nonePermission
+                              : Object.keys(summary).map((r) => permissionConfig[r]?.label ?? r).join(" · ")}
                           </p>
                           {key.lastUsedAt && (
                             <p className="text-xs text-muted-foreground">
-                              Utilisée le {new Date(key.lastUsedAt).toLocaleDateString("fr-FR")}
+                              {settingsMessages.apiKeys.lastUsedOn(formatShortDate(key.lastUsedAt))}
                             </p>
                           )}
                         </div>
@@ -756,9 +935,9 @@ function SettingsContent({
         <TabsContent value="partage" className="mt-6 flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>Membres</CardTitle>
+              <CardTitle>{settingsMessages.sharing.title}</CardTitle>
               <CardDescription>
-                {members?.length ?? 0} membre{(members?.length ?? 0) !== 1 ? "s" : ""} dans ce partage
+                {settingsMessages.sharing.description(members?.length ?? 0)}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -772,7 +951,7 @@ function SettingsContent({
                     </div>
                     <div>
                       <p className="text-sm font-medium flex items-center gap-1.5">
-                        {member.user.name ?? "Sans nom"}
+                        {member.user.name ?? settingsMessages.sharing.unnamed}
                         {member.userId === user.id && (
                           <Star className="size-3.5 fill-amber-400 text-amber-400" />
                         )}
@@ -782,7 +961,7 @@ function SettingsContent({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground capitalize">
-                      {member.role === "OWNER" ? "Propriétaire" : member.role === "ADMIN" ? "Admin" : "Membre"}
+                      {formatRole(member.role)}
                     </span>
                     {member.role !== "OWNER" && workspace?.role !== "MEMBER" && (
                       <Button
@@ -800,40 +979,51 @@ function SettingsContent({
 
               {(workspace?.role === "OWNER" || workspace?.role === "ADMIN") && (
                 <div className="border rounded-lg p-3 flex flex-col gap-3">
-                  <p className="text-sm font-medium">Inviter quelqu&apos;un</p>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="email@example.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      className="flex-1"
-                    />
-                    <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "ADMIN" | "MEMBER")}>
-                      <SelectTrigger className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="MEMBER">Membre</SelectItem>
-                        <SelectItem value="ADMIN">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button onClick={handleInvite} disabled={isPending || !inviteEmail.trim()}>
-                      Inviter
-                    </Button>
+                  <p className="text-sm font-medium">{settingsMessages.sharing.inviteTitle}</p>
+                  <div className="flex flex-col gap-2">
+                    <Field data-invalid={!!inviteErrors.email}>
+                      <FieldLabel htmlFor="invite-email" required>{settingsMessages.sharing.invitePlaceholder}</FieldLabel>
+                      <Input
+                        id="invite-email"
+                        placeholder={settingsMessages.sharing.invitePlaceholder}
+                        value={inviteEmail}
+                        onChange={(e) => { setInviteEmail(e.target.value); setInviteErrors({}); }}
+                        className="flex-1"
+                      />
+                      {inviteErrors.email && <FieldError>{inviteErrors.email[0]}</FieldError>}
+                    </Field>
+                    <div className="flex gap-2">
+                      <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "ADMIN" | "MEMBER")}>
+                        <SelectTrigger className="w-28">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="MEMBER">{settingsMessages.sharing.member}</SelectItem>
+                            <SelectItem value="ADMIN">{settingsMessages.sharing.admin}</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <Button onClick={handleInvite} disabled={isPending || !inviteEmail.trim()}>
+                        {settingsMessages.sharing.invite}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
 
               {invitations && invitations.length > 0 && (
                 <>
-                  <p className="text-sm font-medium pt-2">Invitations en attente</p>
+                  <p className="text-sm font-medium pt-2">{settingsMessages.sharing.pendingInvitations}</p>
                   {invitations.map((inv) => (
                     <div key={inv.id} className="flex items-center justify-between border rounded-lg p-3">
                       <div>
                         <p className="text-sm">{inv.email}</p>
                         <p className="text-xs text-muted-foreground">
-                          Invité par {inv.inviter.name ?? inv.inviter.email} · expire le{" "}
-                          {new Date(inv.expiresAt).toLocaleDateString("fr-FR")}
+                          {settingsMessages.sharing.invitedBy(
+                            inv.inviter.name ?? inv.inviter.email,
+                            formatShortDate(inv.expiresAt)
+                          )}
                         </p>
                       </div>
                       {(workspace?.role === "OWNER" || workspace?.role === "ADMIN") && (
@@ -843,7 +1033,7 @@ function SettingsContent({
                           onClick={() => setPendingInviteCancel(inv.id)}
                           disabled={isPending}
                         >
-                          Annuler
+                          {settingsMessages.sharing.cancelInvite}
                         </Button>
                       )}
                     </div>
@@ -858,9 +1048,9 @@ function SettingsContent({
       <ConfirmActionDialog
         open={!!pendingRevoke}
         onOpenChange={(open) => !open && setPendingRevoke(null)}
-        title="Révoquer cette clé API ?"
-        description="Elle ne pourra plus être utilisée. Cette action est irréversible."
-        confirmLabel="Révoquer"
+        title={settingsMessages.sharing.confirmRevokeTitle}
+        description={settingsMessages.sharing.confirmRevokeDescription}
+        confirmLabel={settingsMessages.sharing.confirmRevoke}
         destructive
         pending={isPending}
         onConfirm={confirmRevoke}
@@ -869,9 +1059,9 @@ function SettingsContent({
       <ConfirmActionDialog
         open={!!pendingInviteCancel}
         onOpenChange={(open) => !open && setPendingInviteCancel(null)}
-        title="Annuler cette invitation ?"
-        description="Elle ne pourra plus être acceptée."
-        confirmLabel="Annuler l'invitation"
+        title={settingsMessages.sharing.confirmCancelInvitationTitle}
+        description={settingsMessages.sharing.confirmCancelInvitationDescription}
+        confirmLabel={settingsMessages.sharing.confirmCancelInvitation}
         destructive
         pending={isPending}
         onConfirm={confirmCancelInvitation}
@@ -880,9 +1070,9 @@ function SettingsContent({
       <ConfirmActionDialog
         open={!!pendingMemberRemove}
         onOpenChange={(open) => !open && setPendingMemberRemove(null)}
-        title="Retirer ce membre ?"
-        description="Il perdra l'accès à ce partage."
-        confirmLabel="Retirer"
+        title={settingsMessages.sharing.confirmRemoveMemberTitle}
+        description={settingsMessages.sharing.confirmRemoveMemberDescription}
+        confirmLabel={settingsMessages.sharing.confirmRemoveMember}
         destructive
         pending={isPending}
         onConfirm={confirmRemoveMember}
@@ -891,9 +1081,9 @@ function SettingsContent({
       <Dialog open={!!pendingCreatedKey} onOpenChange={(open) => { if (!open) { setPendingCreatedKey(null); setKeyCopied(false); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Clé créée avec succès</DialogTitle>
+            <DialogTitle>{settingsMessages.apiKeys.createdTitle}</DialogTitle>
             <DialogDescription>
-              Copiez cette clé maintenant — vous ne pourrez plus la revoir.
+              {settingsMessages.apiKeys.createdDescription}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-start gap-2">
@@ -905,7 +1095,7 @@ function SettingsContent({
             </Button>
           </div>
           <DialogFooter>
-            <Button onClick={() => { setPendingCreatedKey(null); setKeyCopied(false); }}>Fermer</Button>
+            <Button onClick={() => { setPendingCreatedKey(null); setKeyCopied(false); }}>{settingsMessages.apiKeys.close}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

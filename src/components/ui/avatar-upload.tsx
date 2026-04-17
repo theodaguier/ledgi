@@ -3,7 +3,8 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Camera, X, Loader2 } from "lucide-react";
+import { Camera, X } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 interface AvatarUploadProps {
   value: string | null | undefined;
@@ -93,7 +94,7 @@ export function AvatarUpload({
           )}
         >
           {busy ? (
-            <Loader2 className="size-4 text-white animate-spin" />
+            <Spinner className="size-4 text-white" />
           ) : (
             <Camera className="size-4 text-white" />
           )}

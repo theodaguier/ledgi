@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/auth";
+import { getAppMessages } from "@/lib/app-messages";
+import { normalizeAppLocale } from "@/lib/locale";
 import {
   SettingsContent,
   type TabValue,
@@ -14,12 +16,18 @@ export const metadata: Metadata = {
   title: "Paramètres",
 };
 
-function SettingsLoading() {
+function SettingsLoading({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
   return (
     <AppPageShell className="max-w-2xl">
       <AppPageHeader
-        title="Paramètres"
-        description="Gérer votre compte et vos préférences"
+        title={title}
+        description={description}
       />
     </AppPageShell>
   );
@@ -39,7 +47,7 @@ export default async function SettingsPage({
 
   const params = await searchParams;
   const rawTab = params?.tab;
-  const VALID_TABS = ["profil", "securite", "cles-api", "partage"] as const;
+  const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage"] as const;
   const initialTab = VALID_TABS.includes(rawTab as (typeof VALID_TABS)[number])
     ? (rawTab as (typeof VALID_TABS)[number])
     : "profil";
@@ -97,9 +105,19 @@ export default async function SettingsPage({
 
   const [settingsResult, membersResult, invitationsResult] =
     await Promise.all([userSettings, members, invitations]);
+  const settingsMessages = getAppMessages(
+    normalizeAppLocale(settingsResult?.locale)
+  ).settings;
 
   return (
-    <Suspense fallback={<SettingsLoading />}>
+    <Suspense
+      fallback={
+        <SettingsLoading
+          title={settingsMessages.title}
+          description={settingsMessages.description}
+        />
+      }
+    >
       <SettingsContent
         user={user}
         userSettings={settingsResult}

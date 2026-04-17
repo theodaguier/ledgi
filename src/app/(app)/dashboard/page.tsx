@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/auth";
 import type { Metadata } from "next";
-import { siteConfig } from "@/config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,10 +12,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
-import { format } from "date-fns";
-import { fr } from "date-fns/locale";
+import { format, type Locale } from "date-fns";
+import { enUS, es, fr } from "date-fns/locale";
 import { AppPageShell } from "@/components/app-page-shell";
 import { AppPageHeader } from "@/components/app-page-header";
+import {
+  formatImportedRows,
+  getDashboardMessages,
+} from "@/lib/dashboard-messages";
+import { normalizeAppLocale, type AppLocale } from "@/lib/locale";
 import {
   formatCurrency,
   getTransactionAmountDisplay,
@@ -43,6 +47,7 @@ import {
   type DailyDataPoint,
 } from "./dashboard-charts";
 import { getWorkspaceContext, listWorkspaceMembers } from "@/lib/workspace";
+import { computeRealBalances } from "@/lib/account-balance";
 import { DashboardUserFilter } from "./dashboard-user-filter";
 import { DashboardPeriodFilter, type PeriodPreset } from "./dashboard-period-filter";
 
@@ -55,6 +60,38 @@ function getSearchParam(
   value: string | string[] | undefined,
 ): string | undefined {
   return typeof value === "string" ? value : value?.[0];
+}
+
+function getAllSearchParams(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function buildUserQuery(userIds: string[]): string {
+  if (userIds.length === 0) return "";
+  return userIds.map((id) => `user=${encodeURIComponent(id)}`).join("&");
+}
+
+function getDateFnsLocale(locale: AppLocale): Locale {
+  if (locale === "en-US") return enUS;
+  if (locale === "es-ES") return es;
+  return fr;
+}
+
+function formatLongDate(date: Date, locale: AppLocale): string {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateTime(date: Date, locale: AppLocale): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function getDateRangeFromPeriod(period: string | undefined): {
@@ -107,11 +144,13 @@ function getDateRangeFromPeriod(period: string | undefined): {
 
 async function getDashboardData(
   workspaceId: string,
-  ownerUserId: string | undefined,
+  ownerUserIds: string[],
   startDate: Date,
   endDate: Date,
   previousStartDate: Date,
   previousEndDate: Date,
+  dateLocale: Locale,
+  otherCategoryLabel: string,
 ) {
   const monthCount =
     Math.round(
@@ -123,12 +162,16 @@ async function getDashboardData(
     d.setMonth(d.getMonth() + i);
     const s = new Date(d.getFullYear(), d.getMonth(), 1);
     const e = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    return { start: s, end: e, label: format(s, "MMM", { locale: fr }) };
+    return { start: s, end: e, label: format(s, "MMM", { locale: dateLocale }) };
   });
 
   const txBaseWhere = {
     bankAccount: { workspaceId },
-    ...(ownerUserId ? { ownerUserId } : {}),
+    ...(ownerUserIds.length > 0
+      ? ownerUserIds.length === 1
+        ? { ownerUserId: ownerUserIds[0] }
+        : { ownerUserId: { in: ownerUserIds } }
+      : {}),
   };
 
   const [
@@ -185,7 +228,11 @@ async function getDashboardData(
     prisma.importBatch.findMany({
       where: {
         workspaceId,
-        ...(ownerUserId ? { createdByUserId: ownerUserId } : {}),
+        ...(ownerUserIds.length > 0
+          ? ownerUserIds.length === 1
+            ? { createdByUserId: ownerUserIds[0] }
+            : { createdByUserId: { in: ownerUserIds } }
+          : {}),
       },
       orderBy: { createdAt: "desc" },
       take: 3,
@@ -240,9 +287,12 @@ async function getDashboardData(
     }),
     prisma.bankAccount.findMany({
       where: { workspaceId, isActive: true },
-      select: { id: true, name: true, balance: true, currency: true, type: true },
+      select: { id: true, name: true, referenceBalance: true, currency: true, type: true, bankInstitutionId: true },
     }),
   ]);
+
+  const accountIds = bankAccounts.map((a) => a.id);
+  const realBalances = await computeRealBalances(workspaceId, accountIds);
 
   const categoryIds = categoryGroups
     .map((g) => g.categoryId)
@@ -262,7 +312,7 @@ async function getDashboardData(
     const amount = g._sum.amount?.toNumber() ?? 0;
     const cat = g.categoryId ? categoryMap[g.categoryId] : null;
     return {
-      name: cat?.name ?? "Autre",
+      name: cat?.name ?? otherCategoryLabel,
       amount,
       color: cat?.color ?? "",
       percent:
@@ -303,15 +353,31 @@ async function getDashboardData(
     totalCategoryExpenses,
     dailyData,
     bankAccounts,
+    realBalances,
     startDate,
     endDate,
   };
 }
 
-function formatPercent(current: number, previous: number) {
+function formatPercent(current: number, previous: number, locale: AppLocale) {
   if (previous === 0) return null;
   const diff = ((current - previous) / previous) * 100;
-  return { value: `${Math.abs(diff).toFixed(1)}%`, up: diff > 0 };
+  return {
+    value: new Intl.NumberFormat(locale, {
+      style: "percent",
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(Math.abs(diff) / 100),
+    up: diff > 0,
+  };
+}
+
+function formatPercentage(value: number, locale: AppLocale) {
+  return new Intl.NumberFormat(locale, {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value / 100);
 }
 
 export default async function DashboardPage({
@@ -320,26 +386,35 @@ export default async function DashboardPage({
   searchParams: DashboardSearchParams;
 }) {
   const ctx = await getWorkspaceContext();
-  const [members, rawSearchParams] = await Promise.all([
+  const [members, rawSearchParams, userSettings] = await Promise.all([
     listWorkspaceMembers(ctx.workspaceId),
     searchParams,
+    prisma.userSettings.findUnique({
+      where: { userId: ctx.userId },
+      select: { locale: true },
+    }),
   ]);
+  const locale = normalizeAppLocale(userSettings?.locale);
+  const dateLocale = getDateFnsLocale(locale);
+  const messages = getDashboardMessages(locale);
 
-  const rawUser = getSearchParam(rawSearchParams.user);
+  const rawUsers = getAllSearchParams(rawSearchParams.user);
   const rawPeriod = getSearchParam(rawSearchParams.period);
   const userIds = new Set(members.map((m) => m.userId));
-  const ownerUserId = rawUser && userIds.has(rawUser) ? rawUser : undefined;
+  const ownerUserIds = rawUsers.filter((u) => userIds.has(u));
 
   const { startDate, endDate, previousStartDate, previousEndDate } =
     getDateRangeFromPeriod(rawPeriod);
 
   const data = await getDashboardData(
     ctx.workspaceId,
-    ownerUserId,
+    ownerUserIds,
     startDate,
     endDate,
     previousStartDate,
-    previousEndDate
+    previousEndDate,
+    dateLocale,
+    messages.sections.otherCategory
   );
   const netBalance = data.thisMonthIncome - data.thisMonthExpenses;
   const savingsRate =
@@ -351,26 +426,34 @@ export default async function DashboardPage({
 
   const expenseTrend = formatPercent(
     data.thisMonthExpenses,
-    data.previousPeriodExpenses
+    data.previousPeriodExpenses,
+    locale
   );
   const incomeTrend = formatPercent(
     data.thisMonthIncome,
-    data.previousPeriodIncome
+    data.previousPeriodIncome,
+    locale
   );
 
   const totalBalance = data.bankAccounts.reduce(
-    (sum, a) => sum + (a.balance?.toNumber() ?? 0),
+    (sum, a) => sum + (data.realBalances.get(a.id) ?? 0),
     0
   );
 
   const hasMultipleMembers = members.length > 1;
-  const activePeriod = (rawPeriod as PeriodPreset) || "this_month";
+  const activePeriod: PeriodPreset =
+    rawPeriod === "last_month" ||
+    rawPeriod === "3_months" ||
+    rawPeriod === "6_months" ||
+    rawPeriod === "this_year"
+      ? rawPeriod
+      : "this_month";
 
   return (
     <AppPageShell>
       <AppPageHeader
-        title="Dashboard"
-        description={format(new Date(), "EEEE d MMMM yyyy", { locale: fr })}
+        title={messages.title}
+        description={formatLongDate(new Date(), locale)}
         actions={
           <div className="flex items-center gap-2">
             {hasMultipleMembers && (
@@ -380,10 +463,11 @@ export default async function DashboardPage({
                   name: m.user.name,
                   email: m.user.email,
                 }))}
-                activeUserId={ownerUserId}
+                activeUserIds={ownerUserIds}
+                locale={locale}
               />
             )}
-            <DashboardPeriodFilter activePeriod={activePeriod} />
+            <DashboardPeriodFilter activePeriod={activePeriod} locale={locale} />
           </div>
         }
       />
@@ -394,16 +478,16 @@ export default async function DashboardPage({
         <Card className="lg:col-span-1">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Solde net ce mois
+              {messages.kpis.netBalance}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl tabular-nums">
-              {formatCurrency(netBalance)}
+              {formatCurrency(netBalance, "EUR", locale)}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {formatCurrency(data.thisMonthIncome)} entrants ·{" "}
-              {formatCurrency(data.thisMonthExpenses)} sortants
+              {formatCurrency(data.thisMonthIncome, "EUR", locale)} {messages.kpis.incomingOutgoing} ·{" "}
+              {formatCurrency(data.thisMonthExpenses, "EUR", locale)} {messages.kpis.outgoing}
             </p>
           </CardContent>
         </Card>
@@ -412,16 +496,16 @@ export default async function DashboardPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Revenus
+              {messages.kpis.income}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl tabular-nums">
-              {formatCurrency(data.thisMonthIncome)}
+              {formatCurrency(data.thisMonthIncome, "EUR", locale)}
             </p>
             {incomeTrend && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {incomeTrend.up ? "↑" : "↓"} {incomeTrend.value} vs mois dernier
+                {incomeTrend.up ? "↑" : "↓"} {incomeTrend.value} {messages.kpis.trendVsPrevious}
               </p>
             )}
           </CardContent>
@@ -431,16 +515,16 @@ export default async function DashboardPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Dépenses
+              {messages.kpis.expenses}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl tabular-nums">
-              {formatCurrency(data.thisMonthExpenses)}
+              {formatCurrency(data.thisMonthExpenses, "EUR", locale)}
             </p>
             {expenseTrend && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {expenseTrend.up ? "↑" : "↓"} {expenseTrend.value} vs mois dernier
+                {expenseTrend.up ? "↑" : "↓"} {expenseTrend.value} {messages.kpis.trendVsPrevious}
               </p>
             )}
           </CardContent>
@@ -450,12 +534,12 @@ export default async function DashboardPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Taux d&apos;épargne
+              {messages.kpis.savingsRate}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl tabular-nums">
-              {savingsRate.toFixed(1)}%
+              {formatPercentage(savingsRate, locale)}
             </p>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
@@ -473,14 +557,14 @@ export default async function DashboardPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Virements
+              {messages.kpis.transfers}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xl tabular-nums">
-              {formatCurrency(data.thisMonthTransfers)}
+              {formatCurrency(data.thisMonthTransfers, "EUR", locale)}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Ce mois</p>
+            <p className="text-xs text-muted-foreground mt-1">{messages.kpis.selectedPeriod}</p>
           </CardContent>
         </Card>
 
@@ -488,7 +572,7 @@ export default async function DashboardPage({
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              À catégoriser
+              {messages.kpis.uncategorized}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -497,13 +581,9 @@ export default async function DashboardPage({
             </p>
             <Button asChild className="mt-1 h-auto p-0 text-xs" variant="link">
               <Link
-                href={
-                  ownerUserId
-                    ? `/transactions?category=uncategorized&user=${ownerUserId}`
-                    : "/transactions?category=uncategorized"
-                }
+                href={`/transactions?category=uncategorized${ownerUserIds.length > 0 ? `&${buildUserQuery(ownerUserIds)}` : ""}`}
               >
-                Catégoriser →
+                {messages.kpis.categorizeAction} -&gt;
               </Link>
             </Button>
           </CardContent>
@@ -514,23 +594,21 @@ export default async function DashboardPage({
           <Card className="col-span-2">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Solde total des comptes
+                {messages.kpis.totalAccountsBalance}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
                 <p className="text-xl tabular-nums">
-                  {formatCurrency(totalBalance)}
+                  {formatCurrency(totalBalance, "EUR", locale)}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {data.bankAccounts.slice(0, 3).map((acc) => (
                     <Badge key={acc.id} variant="secondary" className="text-xs">
                       {acc.name}
-                      {acc.balance != null && (
-                        <span className="ml-1 text-muted-foreground">
-                          {formatCurrency(acc.balance.toNumber(), acc.currency)}
-                        </span>
-                      )}
+                      <span className="ml-1 text-muted-foreground">
+                        {formatCurrency(data.realBalances.get(acc.id) ?? 0, acc.currency, locale)}
+                      </span>
                     </Badge>
                   ))}
                 </div>
@@ -544,14 +622,14 @@ export default async function DashboardPage({
           <Card className="col-span-2">
             <CardContent className="flex items-center justify-between py-4">
               <div className="flex flex-col gap-1">
-                <p className="text-sm">Importer des transactions</p>
+                <p className="text-sm">{messages.kpis.importTransactions}</p>
                 <p className="text-xs text-muted-foreground">
-                  Formats CSV supportés
+                  {messages.kpis.csvFormatsSupported}
                 </p>
               </div>
               <Button asChild size="sm">
-                <Link href={ownerUserId ? `/imports?user=${ownerUserId}` : "/imports"}>
-                  Importer
+                <Link href={ownerUserIds.length > 0 ? `/imports?${buildUserQuery(ownerUserIds)}` : "/imports"}>
+                  {messages.kpis.importAction}
                 </Link>
               </Button>
             </CardContent>
@@ -562,12 +640,13 @@ export default async function DashboardPage({
       {/* ── Charts row ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2">
-          <MonthlyTrendChart data={data.monthlySeries} />
+          <MonthlyTrendChart data={data.monthlySeries} locale={locale} />
         </div>
         <div>
           <CategoryDonutChart
             data={data.categoryData}
             total={data.totalCategoryExpenses}
+            locale={locale}
           />
         </div>
       </div>
@@ -575,12 +654,13 @@ export default async function DashboardPage({
       {/* ── Daily spending + Top categories ──────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2">
-          <DailySpendingChart data={data.dailyData} />
+          <DailySpendingChart data={data.dailyData} locale={locale} />
         </div>
         <div>
           <TopCategoriesList
             data={data.categoryData}
             total={data.totalCategoryExpenses}
+            locale={locale}
           />
         </div>
       </div>
@@ -590,16 +670,12 @@ export default async function DashboardPage({
         <div className="lg:col-span-2">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-0">
-              <CardTitle>Transactions récentes</CardTitle>
+              <CardTitle>{messages.sections.recentTransactions}</CardTitle>
               <Button asChild className="h-auto p-0 text-sm" variant="link">
                 <Link
-                  href={
-                    ownerUserId
-                      ? `/transactions?sort=desc&user=${ownerUserId}`
-                      : "/transactions?sort=desc"
-                  }
+                  href={`/transactions?sort=desc${ownerUserIds.length > 0 ? `&${buildUserQuery(ownerUserIds)}` : ""}`}
                 >
-                  Tout voir →
+                  {messages.sections.seeAllWithArrow}
                 </Link>
               </Button>
             </CardHeader>
@@ -608,10 +684,10 @@ export default async function DashboardPage({
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
                     <TableHead className="w-4 p-0" />
-                    <TableHead className="w-20 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Date</TableHead>
-                    <TableHead className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Libellé</TableHead>
-                    <TableHead className="w-32 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Catégorie</TableHead>
-                    <TableHead className="w-28 text-right text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Montant</TableHead>
+                    <TableHead className="w-20 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{messages.sections.date}</TableHead>
+                    <TableHead className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{messages.sections.label}</TableHead>
+                    <TableHead className="w-32 text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{messages.sections.category}</TableHead>
+                    <TableHead className="w-28 text-right text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{messages.sections.amount}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -619,7 +695,7 @@ export default async function DashboardPage({
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-10">
                         <span className="text-muted-foreground text-sm">
-                          Aucune transaction
+                          {messages.sections.noTransactions}
                         </span>
                       </TableCell>
                     </TableRow>
@@ -628,7 +704,8 @@ export default async function DashboardPage({
                       const amountDisplay = getTransactionAmountDisplay(
                         tx.amount.toNumber(),
                         tx.type,
-                        tx.currency
+                        tx.currency,
+                        locale
                       );
                       const typeColor =
                         tx.type === "CREDIT"
@@ -649,7 +726,7 @@ export default async function DashboardPage({
                             <div className={cn("w-0.5 min-h-[2.75rem] mx-auto", typeColor)} />
                           </TableCell>
                           <TableCell className="text-muted-foreground tabular-nums text-xs py-2.5">
-                            {format(tx.dateOperation, "dd MMM", { locale: fr })}
+                            {format(tx.dateOperation, "dd MMM", { locale: dateLocale })}
                           </TableCell>
                           <TableCell className="py-2.5">
                             <div className="flex items-center gap-2 min-w-0">
@@ -688,7 +765,7 @@ export default async function DashboardPage({
                                 <span className="size-5 shrink-0 flex items-center justify-center bg-muted">
                                   <Layers className="size-3" />
                                 </span>
-                                Non catégorisé
+                                {messages.sections.uncategorizedCategory}
                               </span>
                             )}
                           </TableCell>
@@ -715,21 +792,21 @@ export default async function DashboardPage({
           {/* Recent imports */}
           <Card className="flex-1">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Imports récents</CardTitle>
+              <CardTitle>{messages.sections.recentImports}</CardTitle>
               <Button asChild className="h-auto p-0 text-sm" variant="link">
                 <Link
                   href={
-                    ownerUserId ? `/imports?user=${ownerUserId}` : "/imports"
+                    ownerUserIds.length > 0 ? `/imports?${buildUserQuery(ownerUserIds)}` : "/imports"
                   }
                 >
-                  Voir tout
+                  {messages.sections.seeAll}
                 </Link>
               </Button>
             </CardHeader>
             <CardContent>
               {data.recentImports.length === 0 ? (
                 <p className="text-muted-foreground text-sm text-center py-4">
-                  Aucun import récent
+                  {messages.sections.noRecentImports}
                 </p>
               ) : (
                 <div className="flex flex-col divide-y">
@@ -741,7 +818,7 @@ export default async function DashboardPage({
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span className="truncate text-sm">{imp.fileName}</span>
                         <span className="text-xs text-muted-foreground">
-                          {format(imp.createdAt, "dd/MM/yyyy HH:mm")} ·{" "}
+                          {formatDateTime(imp.createdAt, locale)} ·{" "}
                           {imp.bankAccount.name}
                         </span>
                       </div>
@@ -756,12 +833,12 @@ export default async function DashboardPage({
                         className="shrink-0 text-xs"
                       >
                         {imp.status === "COMPLETED"
-                          ? `${imp.importedCount} lignes`
+                          ? formatImportedRows(imp.importedCount, locale)
                           : imp.status === "PROCESSING"
-                          ? "En cours"
+                          ? messages.sections.processing
                           : imp.status === "FAILED"
-                          ? "Erreur"
-                          : "En attente"}
+                          ? messages.sections.failed
+                          : messages.sections.pending}
                       </Badge>
                     </div>
                   ))}
@@ -773,33 +850,29 @@ export default async function DashboardPage({
           {/* Quick actions */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle>Actions rapides</CardTitle>
+              <CardTitle>{messages.sections.quickActions}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               <Button asChild variant="outline" size="sm" className="justify-start">
                 <Link
                   href={
-                    ownerUserId ? `/imports?user=${ownerUserId}` : "/imports"
+                    ownerUserIds.length > 0 ? `/imports?${buildUserQuery(ownerUserIds)}` : "/imports"
                   }
                 >
-                  Importer un relevé
+                  {messages.sections.importStatement}
                 </Link>
               </Button>
               {data.uncategorizedCount > 0 && (
                 <Button asChild variant="outline" size="sm" className="justify-start">
                   <Link
-                    href={
-                      ownerUserId
-                        ? `/transactions?category=uncategorized&user=${ownerUserId}`
-                        : "/transactions?category=uncategorized"
-                    }
+                    href={`/transactions?category=uncategorized${ownerUserIds.length > 0 ? `&${buildUserQuery(ownerUserIds)}` : ""}`}
                   >
-                    {data.uncategorizedCount} à catégoriser
+                    {data.uncategorizedCount} {messages.kpis.uncategorized.toLowerCase()}
                   </Link>
                 </Button>
               )}
               <Button asChild variant="outline" size="sm" className="justify-start">
-                <Link href="/accounts">Gérer les comptes</Link>
+                <Link href="/accounts">{messages.sections.manageAccounts}</Link>
               </Button>
             </CardContent>
           </Card>

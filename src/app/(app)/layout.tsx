@@ -9,8 +9,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/auth";
+import { normalizeAppLocale } from "@/lib/locale";
 import { headers } from "next/headers";
 import { siteConfig } from "@/config";
+import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
 
 export default async function AppLayout({
   children,
@@ -32,13 +34,14 @@ export default async function AppLayout({
 
   const ctx = await getWorkspaceContext();
 
-  const [accounts, categories, members] = await Promise.all([
+  const [accounts, categories, members, userSettings] = await Promise.all([
     prisma.bankAccount.findMany({
       where: { workspaceId: ctx.workspaceId, isActive: true },
       select: {
         id: true,
         name: true,
         bankName: true,
+        bankInstitutionId: true,
         _count: { select: { transactions: true } },
       },
       orderBy: { name: "asc" },
@@ -63,7 +66,18 @@ export default async function AppLayout({
       },
       orderBy: { joinedAt: "asc" },
     }),
+    prisma.userSettings.findUnique({
+      where: { userId: ctx.userId },
+      select: { locale: true },
+    }),
   ]);
+  const locale = normalizeAppLocale(userSettings?.locale ?? siteConfig.locale);
+
+  const sidebarBrandLogos = await getBankLogosByInstitutionIds(
+    accounts
+      .map((acc) => acc.bankInstitutionId)
+      .filter((id): id is string => Boolean(id))
+  );
 
   return (
     <SidebarProvider>
@@ -72,6 +86,7 @@ export default async function AppLayout({
           <AppSidebar
             accounts={accounts}
             categories={categories}
+            locale={locale}
             user={{ name: ctx.membership.user.name, image: ctx.membership.user.image }}
             workspace={{ id: ctx.workspaceId, name: ctx.workspace.name, type: ctx.workspace.type, role: ctx.role }}
             members={members.map((m) => ({
@@ -85,6 +100,7 @@ export default async function AppLayout({
                 image: m.user.image,
               },
             }))}
+            initialBrandLogos={sidebarBrandLogos}
           />
           <SidebarInset className="flex-1 flex flex-col overflow-hidden h-screen">
             <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 md:hidden bg-background">
@@ -93,8 +109,8 @@ export default async function AppLayout({
                 {siteConfig.name}
               </span>
             </header>
-            <div className="flex-1 overflow-y-auto">
-              <main className="px-6 pt-6 pb-6 md:pt-0 md:pb-8">{children}</main>
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <main className="flex-1 min-h-0 overflow-y-auto flex flex-col px-6 pt-6 pb-6 md:pt-0 md:pb-8">{children}</main>
             </div>
           </SidebarInset>
         </div>

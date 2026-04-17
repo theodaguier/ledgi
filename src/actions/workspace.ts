@@ -6,6 +6,7 @@ import { getWorkspaceContext } from "@/lib/workspace";
 import { randomBytes } from "crypto";
 import slugify from "slugify";
 import { sendInvitationEmail } from "@/lib/email";
+import { inviteFormSchema } from "@/lib/validation/schemas";
 
 export async function createWorkspace(data: {
   name: string;
@@ -67,6 +68,12 @@ export async function inviteMember(
   email: string,
   role: "ADMIN" | "MEMBER" = "MEMBER"
 ) {
+  const parsed = inviteFormSchema.safeParse({ email, role });
+  if (!parsed.success) {
+    const error = parsed.error.issues[0];
+    throw new Error(error?.message ?? "Validation failed");
+  }
+
   const ctx = await getWorkspaceContext();
 
   if (ctx.role !== "OWNER" && ctx.role !== "ADMIN") {

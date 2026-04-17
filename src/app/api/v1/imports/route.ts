@@ -3,7 +3,7 @@ import { prisma } from "@/lib/auth";
 import { verifyApiKey, requireScope } from "@/lib/api-auth";
 import {
   generateTransactionHash,
-  normalizeHeader,
+  findColumn,
   parseCSV,
   detectSeparator,
   detectFormat,
@@ -65,16 +65,6 @@ export async function POST(request: NextRequest) {
   }
 
   const format = detectFormat(csvHeaders);
-
-  const findColumn = (headers: string[], candidates: string[]): string | null => {
-    const normalized = headers.map(normalizeHeader);
-    const normCandidates = candidates.map(normalizeHeader);
-    for (const candidate of normCandidates) {
-      const idx = normalized.indexOf(candidate);
-      if (idx !== -1) return headers[idx];
-    }
-    return null;
-  };
 
   const dateCol = findColumn(csvHeaders, [
     "date", "date operation", "date de l'operation", "dateope",
@@ -198,7 +188,8 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap);
+      const merchant = extractMerchant(label);
+      const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap, merchant);
 
       await prisma.transaction.create({
         data: {
@@ -209,7 +200,7 @@ export async function POST(request: NextRequest) {
           dateOperation: dateValue,
           label,
           labelNormalized: normalizeLabel(label),
-          merchant: extractMerchant(label),
+          merchant,
           amount,
           currency: "EUR",
           type,

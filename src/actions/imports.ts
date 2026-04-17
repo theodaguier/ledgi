@@ -1,12 +1,13 @@
 "use server";
 
 import { prisma } from "@/lib/auth";
-import { generateTransactionHash, normalizeHeader } from "@/lib/csv-parser";
+import { generateTransactionHash, findColumn } from "@/lib/csv-parser";
 import { parseCSV, detectSeparator, detectFormat, parseAmount, parseDate, type FormatProfile } from "@/lib/csv-parser";
 import { categorizeTransaction, normalizeLabel, extractMerchant, buildManualDecisionKey, type ManualDecisionMap } from "@/lib/categorization";
 import { Prisma, TransactionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { importFormSchema } from "@/lib/validation/schemas";
 
 export interface ImportResult {
   success: boolean;
@@ -21,6 +22,11 @@ export async function importCSV(
   fileName: string,
   bankAccountId: string
 ): Promise<ImportResult> {
+  const parsed = importFormSchema.safeParse({ accountId: bankAccountId });
+  if (!parsed.success) {
+    return { success: false, imported: 0, skipped: 0, errors: parsed.error.issues.map((i) => i.message), batchId: "" };
+  }
+
   const ctx = await getWorkspaceContext();
 
   const separator = detectSeparator(fileContent);
@@ -196,7 +202,8 @@ export async function importCSV(
         continue;
       }
 
-      const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap);
+      const merchant = extractMerchant(label);
+      const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap, merchant);
 
       const tx = await prisma.transaction.create({
         data: {
@@ -207,7 +214,7 @@ export async function importCSV(
           dateOperation: dateValue,
           label,
           labelNormalized: normalizeLabel(label),
-          merchant: extractMerchant(label),
+          merchant,
           amount,
           currency: "EUR",
           type,
@@ -255,16 +262,6 @@ export async function importCSV(
     errors: errors.slice(0, 20),
     batchId: batch.id,
   };
-}
-
-function findColumn(headers: string[], candidates: string[]): string | null {
-  const normalized = headers.map(normalizeHeader);
-  const normCandidates = candidates.map(normalizeHeader);
-  for (const candidate of normCandidates) {
-    const idx = normalized.indexOf(candidate);
-    if (idx !== -1) return headers[idx];
-  }
-  return null;
 }
 
 export async function deleteImportBatch(batchId: string) {

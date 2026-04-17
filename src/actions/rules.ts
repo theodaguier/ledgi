@@ -4,6 +4,7 @@ import { prisma } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { MatchType } from "@prisma/client";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { ruleFormSchema } from "@/lib/validation/schemas";
 
 export async function createRule(data: {
   name: string;
@@ -12,6 +13,10 @@ export async function createRule(data: {
   categoryId: string;
   description: string;
 }) {
+  const parsed = ruleFormSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
   const ctx = await getWorkspaceContext();
 
   const existing = await prisma.categorizationRule.count({
@@ -45,6 +50,11 @@ export async function updateRule(
     description: string;
   }
 ) {
+  const parsed = ruleFormSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
+
   const ctx = await getWorkspaceContext();
 
   const rule = await prisma.categorizationRule.findFirst({

@@ -2,6 +2,10 @@ import { prisma } from "@/lib/auth";
 import type { Metadata } from "next";
 import AccountsPageClient from "./page-client";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { computeRealBalances } from "@/lib/account-balance";
+import { normalizeAppLocale } from "@/lib/locale";
+import { siteConfig } from "@/config";
+import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
 
 export const metadata: Metadata = {
   title: "Comptes",
@@ -10,18 +14,36 @@ export const metadata: Metadata = {
 export default async function AccountsPage() {
   const ctx = await getWorkspaceContext();
 
-  const accountsRaw = await prisma.bankAccount.findMany({
-    where: { workspaceId: ctx.workspaceId },
-    orderBy: { createdAt: "asc" },
-    include: {
-      _count: { select: { transactions: true } },
-    },
-  });
+  const [accountsRaw, userSettings] = await Promise.all([
+    prisma.bankAccount.findMany({
+      where: { workspaceId: ctx.workspaceId },
+      orderBy: { createdAt: "asc" },
+      include: {
+        _count: { select: { transactions: true } },
+      },
+    }),
+    prisma.userSettings.findUnique({
+      where: { userId: ctx.userId },
+      select: { locale: true },
+    }),
+  ]);
+
+  const accountIds = accountsRaw.map((a) => a.id);
+  const realBalances = await computeRealBalances(ctx.workspaceId, accountIds);
+  const locale = normalizeAppLocale(userSettings?.locale ?? siteConfig.locale);
 
   const accounts = accountsRaw.map((acc) => ({
     ...acc,
-    balance: acc.balance ? Number(acc.balance) : null,
+    currentBalance: realBalances.get(acc.id) ?? 0,
+    referenceBalance: acc.referenceBalance ? Number(acc.referenceBalance) : null,
+    referenceBalanceDate: acc.referenceBalanceDate ?? null,
   }));
 
-  return <AccountsPageClient accounts={accounts} />;
+  const initialBrandLogos = await getBankLogosByInstitutionIds(
+    accounts
+      .map((acc) => acc.bankInstitutionId)
+      .filter((id): id is string => Boolean(id))
+  );
+
+  return <AccountsPageClient accounts={accounts} locale={locale} initialBrandLogos={initialBrandLogos} />;
 }
