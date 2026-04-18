@@ -7,7 +7,7 @@ BEGIN;
 
 -- ── 1. Create Workspace ────────────────────────────────────────────────────────
 CREATE TABLE "Workspace" (
-    "id"          TEXT        NOT NULL DEFAULT cuid(),
+    "id"          TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
     "name"        TEXT        NOT NULL,
     "slug"        TEXT        NOT NULL UNIQUE,
     "type"        TEXT        NOT NULL DEFAULT 'PERSONAL',
@@ -21,7 +21,7 @@ CREATE UNIQUE INDEX "Workspace_slug_key" ON "Workspace"("slug");
 
 -- ── 2. Create WorkspaceMember ──────────────────────────────────────────────────
 CREATE TABLE "WorkspaceMember" (
-    "id"          TEXT        NOT NULL DEFAULT cuid(),
+    "id"          TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
     "workspaceId" TEXT        NOT NULL,
     "userId"      TEXT        NOT NULL,
     "role"        TEXT        NOT NULL DEFAULT 'MEMBER',
@@ -42,7 +42,7 @@ ALTER TABLE "WorkspaceMember"
 
 -- ── 3. Create WorkspaceInvitation ─────────────────────────────────────────────
 CREATE TABLE "WorkspaceInvitation" (
-    "id"          TEXT        NOT NULL DEFAULT cuid(),
+    "id"          TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
     "workspaceId" TEXT        NOT NULL,
     "email"       TEXT        NOT NULL,
     "role"        TEXT        NOT NULL DEFAULT 'MEMBER',
