@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/auth";
 import { verifyApiKey, requireScope } from "@/lib/api-auth";
-import { normalizeLabel } from "@/lib/categorization";
+import { normalizeLabel, buildGroupKey } from "@/lib/categorization";
 import { TransactionType } from "@prisma/client";
 
 export async function PATCH(
@@ -37,7 +37,7 @@ export async function PATCH(
 
   const tx = await prisma.transaction.findFirst({
     where: { id, bankAccount: { workspaceId } },
-    select: { id: true, labelNormalized: true, label: true, type: true, merchant: true },
+    select: { id: true, labelNormalized: true, label: true, type: true, merchant: true, amount: true, currency: true, groupKey: true },
   });
 
   if (!tx) {
@@ -62,11 +62,12 @@ export async function PATCH(
   }
 
   const normalizedLabel = tx.labelNormalized ?? normalizeLabel(tx.label);
+  const groupKey = tx.groupKey ?? buildGroupKey(tx.label, Number(tx.amount), tx.type, tx.currency);
 
   const updated = await prisma.$transaction(async (p) => {
     const result = await p.transaction.update({
       where: { id },
-      data: updateData,
+      data: { ...updateData, groupKey: groupKey ?? undefined },
       include: {
         category: { select: { id: true, name: true, slug: true, color: true, icon: true } },
         bankAccount: { select: { id: true, name: true } },
@@ -76,11 +77,11 @@ export async function PATCH(
     if (hasCategoryUpdate) {
       const categoryId = updateData.categoryId as string | null;
 
-      const similarWhere = tx.merchant
+      const similarWhere = groupKey
         ? {
             id: { not: id },
             bankAccount: { workspaceId },
-            merchant: tx.merchant,
+            groupKey: groupKey,
             type: tx.type as TransactionType,
           }
         : {
@@ -96,10 +97,24 @@ export async function PATCH(
       });
 
       if (categoryId === null) {
+        if (groupKey) {
+          await p.manualLabelCategory.deleteMany({
+            where: { workspaceId, groupKey: groupKey, type: tx.type as TransactionType },
+          });
+        }
         await p.manualLabelCategory.deleteMany({
           where: { workspaceId, labelNormalized: normalizedLabel, type: tx.type as TransactionType },
         });
       } else {
+        if (groupKey) {
+          await p.manualLabelCategory.upsert({
+            where: {
+              workspaceId_groupKey_type: { workspaceId, groupKey: groupKey, type: tx.type as TransactionType },
+            },
+            create: { workspaceId, labelNormalized: normalizedLabel, groupKey: groupKey, type: tx.type as TransactionType, categoryId },
+            update: { categoryId, updatedAt: new Date() },
+          });
+        }
         await p.manualLabelCategory.upsert({
           where: {
             workspaceId_labelNormalized_type: { workspaceId, labelNormalized: normalizedLabel, type: tx.type as TransactionType },

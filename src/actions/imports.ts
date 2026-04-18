@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/auth";
 import { generateTransactionHash, findColumn } from "@/lib/csv-parser";
 import { parseCSV, detectSeparator, detectFormat, parseAmount, parseDate, type FormatProfile } from "@/lib/csv-parser";
-import { categorizeTransaction, normalizeLabel, extractMerchant, buildManualDecisionKey, type ManualDecisionMap } from "@/lib/categorization";
+import { categorizeTransaction, normalizeLabel, extractMerchant, buildManualDecisionKey, buildGroupKey, type ManualDecisionMap } from "@/lib/categorization";
 import { Prisma, TransactionType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { getWorkspaceContext } from "@/lib/workspace";
@@ -204,6 +204,7 @@ export async function importCSV(
 
       const merchant = extractMerchant(label);
       const categorization = await categorizeTransaction(label, amount, rules, undefined, manualDecisionMap, merchant);
+      const groupKey = buildGroupKey(label, amount, type, "EUR");
 
       const tx = await prisma.transaction.create({
         data: {
@@ -221,6 +222,7 @@ export async function importCSV(
           isAutomatic: type === "DEBIT",
           categoryId: categorization.categoryId,
           confidence: categorization.confidence,
+          groupKey,
           hash,
           metadata: {
             matchedRule: categorization.matchedRule,

@@ -238,3 +238,50 @@ export function extractMerchant(label: string): string | null {
   const words = cleaned.split(" ").slice(0, 3);
   return words.join(" ");
 }
+
+export function buildGroupKey(
+  label: string,
+  amount: number,
+  type: string,
+  currency: string
+): string | null {
+  const counterparty = extractCounterparty(label);
+  if (!counterparty) return null;
+
+  const amountStr = Math.abs(amount).toFixed(2);
+  const normalizedType = type.toUpperCase();
+  const normalizedCurrency = currency.toUpperCase();
+
+  return `${counterparty}|${amountStr}|${normalizedType}|${normalizedCurrency}`;
+}
+
+export function extractCounterparty(label: string): string | null {
+  let cleaned = label
+    .split("|")[0]
+    .replace(/cb\s*\*?\d{4}/gi, "")
+    .replace(/carte\s*\d{4}/gi, "")
+    .replace(/\d{2}\/\d{2}/g, "")
+    .replace(/\d{4,}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const genericPrefixes = [
+    /^virement\s+(emis|recu|web|permanent|sepa|instantané)/i,
+    /^vir\s+(emis|recu|web|permanent|sepa|instantané)/i,
+    /^prlv\s+(sepa)?/i,
+    /^prelevement\s+(sepa)?/i,
+    /^sepa\s+(credit|debit)/i,
+  ];
+
+  for (const prefix of genericPrefixes) {
+    cleaned = cleaned.replace(prefix, "").trim();
+  }
+
+  if (cleaned.length < 2) return null;
+
+  const words = cleaned.split(" ").filter(w => w.length > 0);
+  if (words.length === 0) return null;
+
+  const counterparty = words.slice(0, 3).join(" ");
+  return normalizeLabel(counterparty);
+}
