@@ -13,6 +13,7 @@ import {
   ComboboxPopup,
 } from "@/components/ui/combobox";
 import { InputGroupAddon, InputGroupText } from "@/components/ui/input-group";
+import { PriceInput } from "@/components/ui/price-input";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon } from "@hugeicons/core-free-icons";
 import {
@@ -322,28 +323,13 @@ export function AccountForm({
           </Field>
           <Field>
             <FieldLabel htmlFor="account-balance">{messages.form.initialBalanceLabel}</FieldLabel>
-            <Input
+            <PriceInput
               id="account-balance"
-              type="number"
-              step="0.01"
+              currency={form.currency || "EUR"}
               value={form.referenceBalance}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, referenceBalance: e.target.value }))}
-              placeholder="0.00"
+              onChange={(v) => setForm((f) => ({ ...f, referenceBalance: v }))}
             />
           </Field>
-          {isEdit && (
-            <Field>
-              <FieldLabel htmlFor="account-balance-date">{messages.form.initialBalanceDateLabel}</FieldLabel>
-              <Input
-                id="account-balance-date"
-                type="date"
-                value={form.referenceBalanceDate}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, referenceBalanceDate: e.target.value }))}
-              />
-            </Field>
-          )}
         </FieldGroup>
       </div>
       <SheetFooter>

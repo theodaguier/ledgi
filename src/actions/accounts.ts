@@ -14,18 +14,21 @@ export async function createAccount(data: {
   bankInstitutionId: string | null;
   bankBrandDomain: string | null;
   accountNumber: string | null;
-  referenceBalance: number | null;
-  referenceBalanceDate: Date | null;
+  referenceBalance: string | null;
+  referenceBalanceDate: string | null;
   currency: string;
   ownerUserId?: string;
 }) {
+  const ctx = await getWorkspaceContext();
+
   const parsed = accountFormSchema.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
   }
-  const ctx = await getWorkspaceContext();
 
-  const hasReferenceBalance = data.referenceBalance !== null && data.referenceBalance !== undefined;
+  const referenceBalance = data.referenceBalance && data.referenceBalance.trim() !== "" ? parseFloat(data.referenceBalance) : null;
+  const hasReferenceBalance = referenceBalance !== null && !isNaN(referenceBalance);
+  const referenceBalanceDate = hasReferenceBalance ? new Date() : null;
 
   await prisma.bankAccount.create({
     data: {
@@ -37,8 +40,8 @@ export async function createAccount(data: {
       bankInstitutionId: data.bankInstitutionId,
       bankBrandDomain: data.bankBrandDomain,
       accountNumber: data.accountNumber,
-      referenceBalance: data.referenceBalance ?? 0,
-      referenceBalanceDate: hasReferenceBalance ? (data.referenceBalanceDate ?? new Date()) : null,
+      referenceBalance,
+      referenceBalanceDate,
       currency: data.currency,
     },
   });
@@ -55,23 +58,40 @@ export async function updateAccount(
     bankInstitutionId: string | null;
     bankBrandDomain: string | null;
     accountNumber: string | null;
-    referenceBalance: number | null;
-    referenceBalanceDate: Date | null;
+    referenceBalance: string | null;
+    referenceBalanceDate: string | null;
     currency: string;
   }
 ) {
+  const ctx = await getWorkspaceContext();
+
   const parsed = accountFormSchema.safeParse(data);
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
   }
-
-  const ctx = await getWorkspaceContext();
 
   const account = await prisma.bankAccount.findFirst({
     where: { id: accountId, workspaceId: ctx.workspaceId },
   });
 
   if (!account) throw new Error("Compte non trouvé");
+
+  const newReferenceBalance = data.referenceBalance && data.referenceBalance.trim() !== "" ? parseFloat(data.referenceBalance) : null;
+  const oldReferenceBalance = account.referenceBalance ? account.referenceBalance.toNumber() : null;
+
+  let referenceBalance: number | null;
+  let referenceBalanceDate: Date | null;
+
+  if (newReferenceBalance === null) {
+    referenceBalance = null;
+    referenceBalanceDate = null;
+  } else if (newReferenceBalance !== oldReferenceBalance) {
+    referenceBalance = newReferenceBalance;
+    referenceBalanceDate = new Date();
+  } else {
+    referenceBalance = account.referenceBalance ? account.referenceBalance.toNumber() : null;
+    referenceBalanceDate = account.referenceBalanceDate;
+  }
 
   await prisma.bankAccount.update({
     where: { id: accountId },
@@ -82,8 +102,8 @@ export async function updateAccount(
       bankInstitutionId: data.bankInstitutionId,
       bankBrandDomain: data.bankBrandDomain,
       accountNumber: data.accountNumber,
-      referenceBalance: data.referenceBalance ?? 0,
-      referenceBalanceDate: data.referenceBalanceDate,
+      referenceBalance,
+      referenceBalanceDate,
       currency: data.currency,
     },
   });

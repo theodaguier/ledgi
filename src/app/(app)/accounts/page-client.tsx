@@ -139,8 +139,8 @@ export default function AccountsPageClient({
           bankInstitutionId: form.bankInstitutionId || null,
           bankBrandDomain: form.bankBrandDomain || null,
           accountNumber: form.accountNumber || null,
-          referenceBalance: form.referenceBalance ? parseFloat(form.referenceBalance) : null,
-          referenceBalanceDate: form.referenceBalanceDate ? new Date(form.referenceBalanceDate) : null,
+          referenceBalance: form.referenceBalance || null,
+          referenceBalanceDate: form.referenceBalanceDate || null,
           currency: form.currency,
         };
 
