@@ -505,30 +505,26 @@ function SettingsContent({
     setPasswordErrors({});
 
     startTransition(async () => {
-      try {
-        await changePassword(currentPassword, newPassword);
+      const result = await changePassword(currentPassword, newPassword);
+      if (result.ok) {
         toast.success(settingsMessages.security.updateSuccess);
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : settingsMessages.security.update
-        );
+      } else {
+        toast.error(result.error);
       }
     });
   };
 
   const handleSaveProfile = (data: { name: string }) => {
     startTransition(async () => {
-      try {
-        await updateProfile(data);
+      const result = await updateProfile(data);
+      if (result.ok) {
         toast.success(settingsMessages.profile.updateSuccess);
         router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : settingsMessages.profile.updateSuccess
-        );
+      } else {
+        toast.error(result.error);
       }
     });
   };
@@ -720,6 +716,7 @@ function SettingsContent({
                   <Input
                     id="current-password"
                     type="password"
+                    placeholder={settingsMessages.security.currentPasswordPlaceholder}
                     value={currentPassword}
                     onChange={(e) => { setCurrentPassword(e.target.value); setPasswordErrors({}); }}
                   />
@@ -730,6 +727,7 @@ function SettingsContent({
                   <Input
                     id="new-password"
                     type="password"
+                    placeholder={settingsMessages.security.newPasswordPlaceholder}
                     value={newPassword}
                     onChange={(e) => { setNewPassword(e.target.value); setPasswordErrors({}); }}
                   />
@@ -742,6 +740,7 @@ function SettingsContent({
                   <Input
                     id="confirm-password"
                     type="password"
+                    placeholder={settingsMessages.security.confirmPasswordPlaceholder}
                     value={confirmPassword}
                     onChange={(e) => { setConfirmPassword(e.target.value); setPasswordErrors({}); }}
                   />
@@ -982,7 +981,7 @@ function SettingsContent({
                   <p className="text-sm font-medium">{settingsMessages.sharing.inviteTitle}</p>
                   <div className="flex flex-col gap-2">
                     <Field data-invalid={!!inviteErrors.email}>
-                      <FieldLabel htmlFor="invite-email" required>{settingsMessages.sharing.invitePlaceholder}</FieldLabel>
+                      <FieldLabel htmlFor="invite-email" required>{settingsMessages.sharing.inviteEmailLabel}</FieldLabel>
                       <Input
                         id="invite-email"
                         placeholder={settingsMessages.sharing.invitePlaceholder}

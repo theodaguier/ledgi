@@ -10,69 +10,67 @@ import { normalizeAppLocale } from "@/lib/locale";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { apiKeyFormSchema } from "@/lib/validation/schemas";
 
-export async function changePassword(currentPassword: string, newPassword: string) {
+type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<ActionResult> {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  if (!session?.user) return { ok: false, error: "Not authenticated" };
 
-  const res = await fetch(`${process.env.BETTER_AUTH_URL || "http://localhost:3000"}/change-password`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      cookie: session.session.token ? `better-auth.session_token=${session.session.token}` : "",
-    },
-    body: JSON.stringify({ currentPassword, newPassword }),
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { message?: string }).message ?? "Password change failed");
+  try {
+    await auth.api.changePassword({
+      body: { currentPassword, newPassword },
+      headers: await headers(),
+    });
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Password change failed";
+    return { ok: false, error: message };
   }
-
-  return res.json();
 }
 
-export async function updateProfile(data: { name?: string; image?: string | null }) {
+export async function updateProfile(data: {
+  name?: string;
+  image?: string | null;
+}): Promise<ActionResult> {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  if (!session?.user) return { ok: false, error: "Not authenticated" };
 
-  const res = await fetch(`${process.env.BETTER_AUTH_URL || "http://localhost:3000"}/update-user`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      cookie: session.session.token ? `better-auth.session_token=${session.session.token}` : "",
-    },
-    body: JSON.stringify(data),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { message?: string }).message ?? "Profile update failed");
+  try {
+    await auth.api.updateUser({
+      body: data,
+      headers: await headers(),
+    });
+    revalidatePath("/settings");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Profile update failed";
+    return { ok: false, error: message };
   }
-
-  revalidatePath("/settings");
-  revalidatePath("/");
 }
 
-export async function updateUserImage(imageUrl: string) {
+export async function updateUserImage(imageUrl: string): Promise<ActionResult> {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user) throw new Error("Not authenticated");
+  if (!session?.user) return { ok: false, error: "Not authenticated" };
 
-  const res = await fetch(`${process.env.BETTER_AUTH_URL || "http://localhost:3000"}/update-user`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      cookie: session.session.token ? `better-auth.session_token=${session.session.token}` : "",
-    },
-    body: JSON.stringify({ image: imageUrl }),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { message?: string }).message ?? "Image update failed");
+  try {
+    await auth.api.updateUser({
+      body: { image: imageUrl },
+      headers: await headers(),
+    });
+    revalidatePath("/settings");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Image update failed";
+    return { ok: false, error: message };
   }
-
-  revalidatePath("/settings");
-  revalidatePath("/");
 }
 
 export async function getUserSettings() {

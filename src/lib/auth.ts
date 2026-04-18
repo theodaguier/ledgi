@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { hash, genSalt, compare } from "bcryptjs";
+import { nextCookies } from "better-auth/next-js";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -55,7 +56,7 @@ export const auth = betterAuth({
       maxAge: 5 * 60,
     },
   },
-  plugins: [],
+  plugins: [nextCookies()],
 });
 
 export type Session = typeof auth.$Infer.Session;
