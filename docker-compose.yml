@@ -15,8 +15,8 @@ services:
       - "${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ledgi}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-ledgi}?schema=public
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       NEXT_PUBLIC_BETTER_AUTH_URL: ${NEXT_PUBLIC_BETTER_AUTH_URL:-http://localhost:3000}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
@@ -31,9 +31,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    depends_on:
-      db:
-        condition: service_healthy
 
   migrator:
     build:
@@ -45,29 +42,7 @@ services:
       - migrate
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ledgi}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-ledgi}?schema=public
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:16-alpine
-    container_name: ledgi_db
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ledgi}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-ledgi}
-    volumes:
-      - ledgi_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ledgi} -d ${POSTGRES_DB:-ledgi}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      DATABASE_URL: ${DATABASE_URL:-}
 
 volumes:
   ledgi_uploads:
-  ledgi_pgdata:

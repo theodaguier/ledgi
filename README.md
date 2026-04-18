@@ -79,15 +79,18 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 | Variable | Description | Required |
 |---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | ✅ |
+| `DATABASE_URL` | PostgreSQL connection string for the database you want Ledgi to use | ✅ |
 | `BETTER_AUTH_SECRET` | Auth secret (min 32 chars) | ✅ |
-| `BETTER_AUTH_URL` | App URL (used by Better Auth) | ✅ |
-| `NEXT_PUBLIC_APP_URL` | Public app URL | ✅ |
+| `BETTER_AUTH_URL` | Public app/auth URL used server-side | ✅ |
+| `NEXT_PUBLIC_BETTER_AUTH_URL` | Public app/auth URL used client-side | ✅ |
+| `NEXT_PUBLIC_APP_URL` | Public app URL used in links/emails | ✅ |
 | `RESEND_API_KEY` | Resend API key for sending emails | Optional |
 | `EMAIL_FROM` | From address for transactional emails | Optional |
 | `ADMIN_NAME` | Admin display name for seeding | ✅ (on first seed) |
 | `ADMIN_EMAIL` | Admin email for seeding | ✅ (on first seed) |
 | `ADMIN_PASSWORD` | Admin password for seeding | ✅ (on first seed) |
+
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` are only used by the optional local Docker Postgres override in `docker-compose.local-db.yml`.
 
 Generate a secret with:
 
@@ -117,9 +120,9 @@ The `Dockerfile` uses a multi-stage build and produces two targets:
 - **`runner`** — the production Next.js server (default target, use as the main container)
 - **`migrator`** — a one-off container to run Prisma migrations
 
-The included `docker-compose.yml` wires everything together, including a
-PostgreSQL 16 container with persistent storage. For production, replace the
-`db` service with a managed PostgreSQL service (e.g., Supabase, Neon, Railway).
+The default `docker-compose.yml` is app-only: it expects `DATABASE_URL` to point
+to an existing PostgreSQL database. If you want a local PostgreSQL container for
+development, use the optional `docker-compose.local-db.yml` override.
 
 #### Prerequisites
 
@@ -132,24 +135,42 @@ PostgreSQL 16 container with persistent storage. For production, replace the
 # 1. Copy the environment template and fill in your values
 cp .env.example .env
 # Then edit .env — at minimum you need:
+#   DATABASE_URL         (your existing PostgreSQL database)
 #   BETTER_AUTH_SECRET   (generate with: openssl rand -base64 32)
-#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-#   (or use the defaults — ledgi / changeme / ledgi)
+#   BETTER_AUTH_URL
+#   NEXT_PUBLIC_BETTER_AUTH_URL
+#   NEXT_PUBLIC_APP_URL
+# In production, the three URL values must be your public domain, not localhost.
 
 # 2. Build the image
 docker compose build
 
-# 3. Start the database and wait for it to be healthy
-docker compose up -d db
-docker compose ps   # wait until db is healthy
-
-# 4. Run database migrations (one-off)
+# 3. Run database migrations (one-off)
 docker compose --profile migrate run migrator
 
-# 5. Start the app
+# 4. Start the app
 docker compose up -d
 
 # The app will be available at http://localhost:3000
+```
+
+#### Optional local PostgreSQL
+
+If you want Docker to run a local PostgreSQL container for development, use the
+compose override file. It injects a local `db` service and rewires `DATABASE_URL`
+for `app` and `migrator` automatically.
+
+```bash
+# Optional: customize POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in .env
+
+# 1. Start the local database
+docker compose -f docker-compose.yml -f docker-compose.local-db.yml up -d db
+
+# 2. Run migrations against the local database
+docker compose -f docker-compose.yml -f docker-compose.local-db.yml --profile migrate run migrator
+
+# 3. Start the app
+docker compose -f docker-compose.yml -f docker-compose.local-db.yml up -d
 ```
 
 #### Persisting avatars
@@ -162,6 +183,9 @@ volumes:
   - ledgi_uploads:/app/public/uploads
 ```
 
+If you use `docker-compose.local-db.yml`, PostgreSQL data is stored in the
+`ledgi_pgdata` named volume.
+
 #### Updating after code changes
 
 ```bash
@@ -169,6 +193,9 @@ docker compose build
 docker compose --profile migrate run migrator
 docker compose up -d
 ```
+
+If you are using the optional local PostgreSQL override, add
+`-f docker-compose.yml -f docker-compose.local-db.yml` to each command.
 
 #### Database schema changes
 
@@ -180,7 +207,7 @@ docker compose --profile migrate run migrator
 docker compose up -d
 ```
 
-For production, use a managed PostgreSQL service (e.g., Supabase, Neon, Railway).
+For production, point `DATABASE_URL` at your existing PostgreSQL service.
 
 ### Vercel
 
