@@ -151,7 +151,7 @@ cp .env.example .env
 # 2. Build the image
 docker compose build
 
-# 3. Run database migrations (one-off)
+# 3. Run database migrations (one-off, optional if you rely on container startup)
 docker compose --profile migrate run migrator
 
 # 4. Start the app
@@ -159,6 +159,10 @@ docker compose up -d
 
 # The app will be available at http://localhost:3000
 ```
+
+The production `runner` image also executes `prisma migrate deploy` before
+starting Next.js. This makes Dockerfile-based platforms such as Dockploy apply
+pending Prisma migrations automatically on each deploy.
 
 #### Optional local PostgreSQL
 
@@ -196,7 +200,6 @@ If you use `docker-compose.local-db.yml`, PostgreSQL data is stored in the
 
 ```bash
 docker compose build
-docker compose --profile migrate run migrator
 docker compose up -d
 ```
 
@@ -205,11 +208,12 @@ If you are using the optional local PostgreSQL override, add
 
 #### Database schema changes
 
-After modifying `prisma/schema.prisma`, rebuild and re-run migrations:
+After modifying `prisma/schema.prisma`, rebuild and redeploy. The app container
+will apply pending migrations automatically on startup. You can still run the
+dedicated `migrator` service manually if you prefer an explicit migration step:
 
 ```bash
 docker compose build
-docker compose --profile migrate run migrator
 docker compose up -d
 ```
 

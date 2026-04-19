@@ -72,8 +72,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static   .next/static
 COPY --from=builder /app/public        ./public
 COPY --from=builder /app/prisma        ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=prisma /app/node_modules ./node_modules
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 RUN mkdir -p public/uploads/avatars && \
+    chmod +x docker-entrypoint.sh && \
     chown -R appuser:appgroup /app
 
 USER appuser
@@ -84,7 +88,7 @@ ENTRYPOINT ["dumb-init", "--"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:3000/api/v1/health || exit 1
 
-CMD ["node", "server.js"]
+CMD ["./docker-entrypoint.sh"]
 
 # ============================================================
 # Stage 5 — One-off migrator
