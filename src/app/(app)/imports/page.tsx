@@ -3,7 +3,7 @@ import { ImportStatus, Prisma } from "@prisma/client";
 import type { Metadata } from "next";
 import ImportsPageClient from "./page-client";
 import { getWorkspaceContext, listWorkspaceMembers } from "@/lib/workspace";
-import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
+import { buildLogoUrlFromBrandDomain } from "@/lib/bank-logo-resolver";
 
 type ImportsSearchParams = Promise<{
   q?: string | string[];
@@ -32,15 +32,17 @@ export default async function ImportsPage({
     listWorkspaceMembers(ctx.workspaceId),
     prisma.bankAccount.findMany({
       where: { workspaceId: ctx.workspaceId, isActive: true },
-      select: { id: true, name: true, bankName: true, bankInstitutionId: true },
+      select: { id: true, name: true, bankName: true, bankInstitutionId: true, bankBrandDomain: true },
     }),
   ]);
 
-  const initialBrandLogos = await getBankLogosByInstitutionIds(
-    accounts
-      .map((acc) => acc.bankInstitutionId)
-      .filter((id): id is string => Boolean(id))
-  );
+  const initialBrandLogos: Record<string, string> = {};
+  for (const acc of accounts) {
+    if (acc.bankInstitutionId && acc.bankBrandDomain) {
+      const url = buildLogoUrlFromBrandDomain(acc.bankBrandDomain);
+      if (url) initialBrandLogos[acc.bankInstitutionId] = url;
+    }
+  }
 
   const rawParams = await searchParams;
   const rawStatus = getSearchParam(rawParams.status);
@@ -109,8 +111,8 @@ export default async function ImportsPage({
       errorCount: true,
       createdAt: true,
       createdByUserId: true,
-bankAccount: {
-        select: { id: true, name: true, bankName: true, bankInstitutionId: true },
+      bankAccount: {
+        select: { id: true, name: true, bankName: true, bankInstitutionId: true, bankBrandDomain: true },
       },
     },
   });

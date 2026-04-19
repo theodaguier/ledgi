@@ -5,7 +5,7 @@ import { getWorkspaceContext } from "@/lib/workspace";
 import { computeRealBalances } from "@/lib/account-balance";
 import { normalizeAppLocale } from "@/lib/locale";
 import { siteConfig } from "@/config";
-import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
+import { buildLogoUrlFromBrandDomain } from "@/lib/bank-logo-resolver";
 
 export const metadata: Metadata = {
   title: "Comptes",
@@ -39,11 +39,13 @@ export default async function AccountsPage() {
     referenceBalanceDate: acc.referenceBalanceDate ?? null,
   }));
 
-  const initialBrandLogos = await getBankLogosByInstitutionIds(
-    accounts
-      .map((acc) => acc.bankInstitutionId)
-      .filter((id): id is string => Boolean(id))
-  );
+  const initialBrandLogos: Record<string, string> = {};
+  for (const acc of accounts) {
+    if (acc.bankInstitutionId && acc.bankBrandDomain) {
+      const url = buildLogoUrlFromBrandDomain(acc.bankBrandDomain);
+      if (url) initialBrandLogos[acc.bankInstitutionId] = url;
+    }
+  }
 
   return <AccountsPageClient accounts={accounts} locale={locale} initialBrandLogos={initialBrandLogos} />;
 }

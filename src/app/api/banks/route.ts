@@ -1,4 +1,4 @@
-import { fetchAllBanks, getBankLogoUrl } from "@/lib/bank-logo-resolver";
+import { fetchAllBanks, getBankLogoWithDomain } from "@/lib/bank-logo-resolver";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -21,10 +21,14 @@ export async function GET(request: Request) {
     );
 
     const results = await Promise.all(
-      banks.slice(0, 20).map(async (bank) => ({
-        ...bank,
-        logo: (await getBankLogoUrl(bank)) ?? null,
-      }))
+      banks.slice(0, 20).map(async (bank) => {
+        const { url, domain } = await getBankLogoWithDomain(bank);
+        return {
+          ...bank,
+          logo: url ?? null,
+          brandDomain: domain ?? null,
+        };
+      })
     );
 
     return Response.json({ banks: results });

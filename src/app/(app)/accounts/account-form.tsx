@@ -40,6 +40,7 @@ interface Bank {
   bic: string;
   countries: string[];
   logo: string | null;
+  brandDomain: string | null;
 }
 
 interface Account {
@@ -183,13 +184,14 @@ export function AccountForm({
       ...f,
       bankName: item?.label ?? "",
       bankInstitutionId: item?.value ?? "",
+      bankBrandDomain: item?.bank?.brandDomain ?? "",
     }));
   };
 
   const handleAddManually = () => {
     setBankQuery(bankQuery);
     setPopupOpen(false);
-    setForm((f) => ({ ...f, bankName: bankQuery, bankInstitutionId: "" }));
+    setForm((f) => ({ ...f, bankName: bankQuery, bankInstitutionId: "", bankBrandDomain: "" }));
   };
 
   return (

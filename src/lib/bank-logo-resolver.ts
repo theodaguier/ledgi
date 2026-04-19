@@ -17,7 +17,7 @@ interface ParsedRow {
   Institution_id?: string;
 }
 
-interface BankRecord {
+export interface BankRecord {
   id: string;
   name: string;
   bic: string;
@@ -92,6 +92,7 @@ const LOGO_CACHE_TTL = 86_400_000;
 
 interface LogoCacheEntry {
   url: string | null;
+  domain?: string;
   expiresAt: number;
 }
 
@@ -126,15 +127,25 @@ async function searchLogoDevDomain(
   }
 }
 
-export async function getBankLogoUrl(
+export function buildLogoUrlFromDomain(domain: string): string {
+  const publishableKey = process.env.LOGO_DEV_PUBLISHABLE_KEY ?? "";
+  return `https://img.logo.dev/${domain}?token=${publishableKey}&size=128&format=webp&retina=true&fallback=404`;
+}
+
+interface LogoResult {
+  url: string | null;
+  domain: string | null;
+}
+
+export async function getBankLogoWithDomain(
   bank: BankRecord
-): Promise<string | null> {
+): Promise<LogoResult> {
   const cacheKey = normalizeBankName(bank.name);
   const now = Date.now();
 
   const cached = logoCache.get(cacheKey);
   if (cached && now < cached.expiresAt) {
-    return cached.url;
+    return { url: cached.url, domain: cached.domain ?? null };
   }
 
   const domain = await searchLogoDevDomain(cacheKey);
@@ -142,10 +153,17 @@ export async function getBankLogoUrl(
 
   let url: string | null = null;
   if (domain && publishableKey) {
-    url = `https://img.logo.dev/${domain}?token=${publishableKey}&size=128&format=webp&retina=true&fallback=404`;
+    url = buildLogoUrlFromDomain(domain);
   }
 
-  logoCache.set(cacheKey, { url, expiresAt: now + LOGO_CACHE_TTL });
+  logoCache.set(cacheKey, { url, domain: domain ?? undefined, expiresAt: now + LOGO_CACHE_TTL });
+  return { url, domain };
+}
+
+export async function getBankLogoUrl(
+  bank: BankRecord
+): Promise<string | null> {
+  const { url } = await getBankLogoWithDomain(bank);
   return url;
 }
 
@@ -178,6 +196,11 @@ export async function getBankLogoByInstitutionId(
 export async function getBankLogosByInstitutionIds(
   institutionIds: string[]
 ): Promise<Record<string, string>> {
+  if (institutionIds.length === 0) return {};
+
+  const publishableKey = process.env.LOGO_DEV_PUBLISHABLE_KEY;
+  if (!publishableKey) return {};
+
   await ensureBankNameById();
   const banks = await fetchAllBanks();
   const bankMap = new Map(banks.map((b) => [b.id, b]));
@@ -192,4 +215,12 @@ export async function getBankLogosByInstitutionIds(
     })
   );
   return results;
+}
+
+export function buildLogoUrlFromBrandDomain(
+  brandDomain: string
+): string | null {
+  const publishableKey = process.env.LOGO_DEV_PUBLISHABLE_KEY;
+  if (!publishableKey) return null;
+  return `https://img.logo.dev/${brandDomain}?token=${publishableKey}&size=128&format=webp&retina=true&fallback=404`;
 }

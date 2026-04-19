@@ -110,11 +110,16 @@ export default function AccountsPageClient({
     const institutionIds = accounts
       .map((acc) => acc.bankInstitutionId)
       .filter((id): id is string => Boolean(id));
+
     if (institutionIds.length === 0) return;
-    fetchBankLogos(institutionIds)
-      .then(setBrandLogos)
+
+    const missingIds = institutionIds.filter((id) => !initialBrandLogos?.[id]);
+    if (missingIds.length === 0) return;
+
+    fetchBankLogos(missingIds)
+      .then((newLogos) => setBrandLogos((prev) => ({ ...prev, ...newLogos })))
       .catch(() => {});
-  }, [accounts]);
+  }, [accounts, initialBrandLogos]);
 
   const handleSubmit = (isEdit: boolean) => {
     const parsed = accountFormSchema.safeParse(form);

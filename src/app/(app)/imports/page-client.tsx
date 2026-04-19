@@ -127,12 +127,17 @@ export default function ImportsPageClient({
     const institutionIds = accounts
       .map((acc) => acc.bankInstitutionId)
       .filter((id): id is string => Boolean(id));
+
     if (institutionIds.length === 0) return;
+
+    const missingIds = institutionIds.filter((id) => !initialBrandLogos?.[id]);
+    if (missingIds.length === 0) return;
+
     import("@/lib/bank-logos-cache")
-      .then(({ fetchBankLogos }) => fetchBankLogos(institutionIds))
-      .then(setBrandLogos)
+      .then(({ fetchBankLogos }) => fetchBankLogos(missingIds))
+      .then((newLogos) => setBrandLogos((prev) => ({ ...prev, ...newLogos })))
       .catch(() => {});
-  }, [accounts]);
+  }, [accounts, initialBrandLogos]);
 
   useEffect(() => {
     return () => {

@@ -12,7 +12,7 @@ import { prisma } from "@/lib/auth";
 import { normalizeAppLocale } from "@/lib/locale";
 import { headers } from "next/headers";
 import { siteConfig } from "@/config";
-import { getBankLogosByInstitutionIds } from "@/lib/bank-logo-resolver";
+import { buildLogoUrlFromBrandDomain } from "@/lib/bank-logo-resolver";
 
 export default async function AppLayout({
   children,
@@ -42,6 +42,7 @@ export default async function AppLayout({
         name: true,
         bankName: true,
         bankInstitutionId: true,
+        bankBrandDomain: true,
         _count: { select: { transactions: true } },
       },
       orderBy: { name: "asc" },
@@ -73,11 +74,13 @@ export default async function AppLayout({
   ]);
   const locale = normalizeAppLocale(userSettings?.locale ?? siteConfig.locale);
 
-  const sidebarBrandLogos = await getBankLogosByInstitutionIds(
-    accounts
-      .map((acc) => acc.bankInstitutionId)
-      .filter((id): id is string => Boolean(id))
-  );
+  const sidebarBrandLogos: Record<string, string> = {};
+  for (const acc of accounts) {
+    if (acc.bankInstitutionId && acc.bankBrandDomain) {
+      const url = buildLogoUrlFromBrandDomain(acc.bankBrandDomain);
+      if (url) sidebarBrandLogos[acc.bankInstitutionId] = url;
+    }
+  }
 
   return (
     <SidebarProvider>
