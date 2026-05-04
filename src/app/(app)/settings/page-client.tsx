@@ -1118,6 +1118,9 @@ function SettingsContent({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
+                            <SelectItem value="3">{settingsMessages.reminders.interval3}</SelectItem>
+                            <SelectItem value="7">{settingsMessages.reminders.interval7}</SelectItem>
+                            <SelectItem value="14">{settingsMessages.reminders.interval14}</SelectItem>
                             <SelectItem value="30">{settingsMessages.reminders.interval30}</SelectItem>
                             <SelectItem value="60">{settingsMessages.reminders.interval60}</SelectItem>
                             <SelectItem value="90">{settingsMessages.reminders.interval90}</SelectItem>
