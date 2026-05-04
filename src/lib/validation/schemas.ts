@@ -66,6 +66,14 @@ export const inviteFormSchema = z.object({
 
 export type InviteFormData = z.infer<typeof inviteFormSchema>;
 
+export const reminderFormSchema = z.object({
+  remindersEnabled: z.boolean(),
+  reminderIntervalDays: z.number().min(1).max(365),
+  reminderHour: z.number().min(0).max(23),
+});
+
+export type ReminderFormData = z.infer<typeof reminderFormSchema>;
+
 export const importFormSchema = z.object({
   accountId: z.string().min(1, "Le compte cible est requis"),
 });

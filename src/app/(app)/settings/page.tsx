@@ -47,7 +47,7 @@ export default async function SettingsPage({
 
   const params = await searchParams;
   const rawTab = params?.tab;
-  const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage"] as const;
+  const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage", "rappels"] as const;
   const initialTab = VALID_TABS.includes(rawTab as (typeof VALID_TABS)[number])
     ? (rawTab as (typeof VALID_TABS)[number])
     : "profil";
@@ -105,6 +105,20 @@ export default async function SettingsPage({
 
   const [settingsResult, membersResult, invitationsResult] =
     await Promise.all([userSettings, members, invitations]);
+
+  const reminderSettings = settingsResult
+    ? {
+        remindersEnabled: settingsResult.remindersEnabled,
+        reminderIntervalDays: settingsResult.reminderIntervalDays,
+        reminderHour: settingsResult.reminderHour,
+        lastRemindedAt: settingsResult.lastRemindedAt?.toISOString() ?? null,
+      }
+    : {
+        remindersEnabled: false,
+        reminderIntervalDays: 30,
+        reminderHour: 9,
+        lastRemindedAt: null as string | null,
+      };
   const settingsMessages = getAppMessages(
     normalizeAppLocale(settingsResult?.locale)
   ).settings;
@@ -121,6 +135,7 @@ export default async function SettingsPage({
       <SettingsContent
         user={user}
         userSettings={settingsResult}
+        reminderSettings={reminderSettings}
         apiKeys={apiKeys.map((k: typeof apiKeys[number]) => ({
           ...k,
           lastUsedAt: k.lastUsedAt?.toISOString() ?? null,

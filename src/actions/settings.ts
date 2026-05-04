@@ -90,6 +90,29 @@ export async function getUserSettings() {
   return settings;
 }
 
+export async function updateReminderSettings(data: {
+  remindersEnabled: boolean;
+  reminderIntervalDays: number;
+  reminderHour: number;
+}): Promise<ActionResult> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user) return { ok: false, error: "Not authenticated" };
+
+  try {
+    await prisma.userSettings.upsert({
+      where: { userId: session.user.id },
+      update: data,
+      create: { userId: session.user.id, ...data },
+    });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Failed to update reminder settings";
+    return { ok: false, error: message };
+  }
+}
+
 export async function updateUserSettings(data: {
   locale?: string;
   timezone?: string;

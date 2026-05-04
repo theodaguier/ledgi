@@ -10,6 +10,7 @@ import {
   updateUserSettings,
   updateProfile,
   updateUserImage,
+  updateReminderSettings,
 } from "@/actions/settings";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
 import { inviteMember, cancelInvitation, removeMember } from "@/actions/workspace";
@@ -47,7 +48,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Plus, Copy, Check, KeyRound, Star } from "lucide-react";
+import { Trash2, Plus, Copy, Check, KeyRound, Star, Bell } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { AppPageShell } from "@/components/app-page-shell";
@@ -204,7 +207,7 @@ function defaultPermissions(config?: Record<string, PermissionConfig>): Permissi
   return perms;
 }
 
-const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage"] as const;
+const VALID_TABS = ["profil", "interface", "securite", "cles-api", "partage", "rappels"] as const;
 type TabValue = (typeof VALID_TABS)[number];
 
 function isValidTab(tab: string | undefined): tab is TabValue {
@@ -410,9 +413,16 @@ function SettingsContent({
   workspace,
   members,
   invitations,
+  reminderSettings,
 }: {
   user: { email: string; name: string | null; image: string | null | undefined; id: string };
   userSettings: { locale: string; timezone: string; defaultCurrency: string; weekStartsOn: number } | null;
+  reminderSettings: {
+    remindersEnabled: boolean;
+    reminderIntervalDays: number;
+    reminderHour: number;
+    lastRemindedAt: string | null;
+  };
   apiKeys: Array<{
     id: string;
     name: string;
@@ -677,6 +687,7 @@ function SettingsContent({
           <TabsTrigger value="securite">{settingsMessages.tabs.security}</TabsTrigger>
           <TabsTrigger value="cles-api">{settingsMessages.tabs.apiKeys}</TabsTrigger>
           <TabsTrigger value="partage">{settingsMessages.tabs.sharing}</TabsTrigger>
+          <TabsTrigger value="rappels">{settingsMessages.tabs.reminders}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profil" className="mt-6 flex flex-col gap-6">
@@ -1037,6 +1048,131 @@ function SettingsContent({
                       )}
                     </div>
                   ))}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="rappels" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{settingsMessages.reminders.title}</CardTitle>
+              <CardDescription>{settingsMessages.reminders.description}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="reminders-enabled">{settingsMessages.reminders.enableLabel}</Label>
+                </div>
+                <Switch
+                  id="reminders-enabled"
+                  checked={reminderSettings.remindersEnabled}
+                  onCheckedChange={(checked) => {
+                    startTransition(async () => {
+                      const result = await updateReminderSettings({
+                        remindersEnabled: checked,
+                        reminderIntervalDays: reminderSettings.reminderIntervalDays,
+                        reminderHour: reminderSettings.reminderHour,
+                      });
+                      if (result.ok) {
+                        toast.success(settingsMessages.reminders.updateSuccess);
+                        router.refresh();
+                      } else {
+                        toast.error(result.error ?? "Erreur");
+                      }
+                    });
+                  }}
+                  disabled={isPending}
+                />
+              </div>
+
+              {reminderSettings.remindersEnabled && (
+                <>
+                  <Separator />
+                  <div className="grid gap-4">
+                    <div className="grid gap-2">
+                      <Label>{settingsMessages.reminders.intervalLabel}</Label>
+                      <Select
+                        value={String(reminderSettings.reminderIntervalDays)}
+                        onValueChange={(value) => {
+                          startTransition(async () => {
+                            const days = parseInt(value, 10);
+                            const result = await updateReminderSettings({
+                              remindersEnabled: reminderSettings.remindersEnabled,
+                              reminderIntervalDays: days,
+                              reminderHour: reminderSettings.reminderHour,
+                            });
+                            if (result.ok) {
+                              toast.success(settingsMessages.reminders.updateSuccess);
+                              router.refresh();
+                            } else {
+                              toast.error(result.error ?? "Erreur");
+                            }
+                          });
+                        }}
+                        disabled={isPending}
+                      >
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder={settingsMessages.reminders.intervalEvery(reminderSettings.reminderIntervalDays)} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="30">{settingsMessages.reminders.interval30}</SelectItem>
+                            <SelectItem value="60">{settingsMessages.reminders.interval60}</SelectItem>
+                            <SelectItem value="90">{settingsMessages.reminders.interval90}</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>{settingsMessages.reminders.hourLabel}</Label>
+                      <Select
+                        value={String(reminderSettings.reminderHour)}
+                        onValueChange={(value) => {
+                          startTransition(async () => {
+                            const hour = parseInt(value, 10);
+                            const result = await updateReminderSettings({
+                              remindersEnabled: reminderSettings.remindersEnabled,
+                              reminderIntervalDays: reminderSettings.reminderIntervalDays,
+                              reminderHour: hour,
+                            });
+                            if (result.ok) {
+                              toast.success(settingsMessages.reminders.updateSuccess);
+                              router.refresh();
+                            } else {
+                              toast.error(result.error ?? "Erreur");
+                            }
+                          });
+                        }}
+                        disabled={isPending}
+                      >
+                        <SelectTrigger className="w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="9">{settingsMessages.reminders.hour9}</SelectItem>
+                            <SelectItem value="10">{settingsMessages.reminders.hour10}</SelectItem>
+                            <SelectItem value="18">{settingsMessages.reminders.hour18}</SelectItem>
+                            <SelectItem value="20">{settingsMessages.reminders.hour20}</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p>{settingsMessages.reminders.emailInfo}</p>
+                    {reminderSettings.lastRemindedAt ? (
+                      <p>{settingsMessages.reminders.lastSent(formatShortDate(reminderSettings.lastRemindedAt))}</p>
+                    ) : (
+                      <p>{settingsMessages.reminders.neverSent}</p>
+                    )}
+                  </div>
                 </>
               )}
             </CardContent>

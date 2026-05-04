@@ -22,6 +22,7 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      CRON_SECRET: ${CRON_SECRET:-}
       AVATAR_STORAGE_DRIVER: local
     volumes:
       - ledgi_uploads:/app/public/uploads
